@@ -48,7 +48,7 @@ func TestTableFillsMissingCells(t *testing.T) {
 		image("about-dark.png", map[string]string{"screen": "about", "theme": "dark"}),
 		image("menu.png", map[string]string{"screen": "menu", "theme": "light"}),
 	)
-	body := render(t, `{{ Table .Images "screen" "theme" "light,dark" "light" }}`, ctx, Options{RowLabel: "screen"})
+	body := render(t, `{{ table .Images "screen" "theme" "light,dark" "light" }}`, ctx, Options{RowLabel: "screen"})
 
 	if !strings.Contains(body, "| screen | light | dark |") {
 		t.Errorf("header missing or misordered:\n%s", body)
@@ -77,7 +77,7 @@ func TestTableOrdersColumns(t *testing.T) {
 		image("a-dark.png", map[string]string{"screen": "a", "theme": "dark"}),
 		image("a-light.png", map[string]string{"screen": "a", "theme": "light"}),
 	)
-	body := render(t, `{{ Table .Images "screen" "theme" "light,dark" "light" }}`, ctx, Options{})
+	body := render(t, `{{ table .Images "screen" "theme" "light,dark" "light" }}`, ctx, Options{})
 	if !strings.Contains(body, "| name | light | dark |") {
 		t.Errorf("want light before dark:\n%s", body)
 	}
@@ -90,7 +90,7 @@ func TestTableWithOneColumn(t *testing.T) {
 		image("latency.png", nil),
 		image("revenue.png", nil),
 	)
-	body := render(t, `{{ Table .Images "name" "" "" "image" }}`, ctx, Options{RowLabel: "file name"})
+	body := render(t, `{{ table .Images "name" "" "" "image" }}`, ctx, Options{RowLabel: "file name"})
 	if !strings.Contains(body, "| file name | image |") {
 		t.Errorf("want a single named column:\n%s", body)
 	}
@@ -107,7 +107,7 @@ func TestGroupByAnyField(t *testing.T) {
 		image("mobile/a.png", map[string]string{"screen": "a"}),
 		image("mobile/b.png", map[string]string{"screen": "b"}),
 	)
-	body := render(t, `{{ range GroupBy .Images "dir" }}{{ .Key }}={{ len .Images }} {{ end }}`, ctx, Options{})
+	body := render(t, `{{ range groupBy .Images "dir" }}{{ .Key }}={{ len .Images }} {{ end }}`, ctx, Options{})
 	if strings.TrimSpace(body) != "desktop=1 mobile=2" {
 		t.Errorf("got %q", strings.TrimSpace(body))
 	}
@@ -117,7 +117,7 @@ func TestGroupByAnyField(t *testing.T) {
 // because a template written for one suite gets pointed at another.
 func TestFieldOfUnknownName(t *testing.T) {
 	ctx := published(image("a.png", nil))
-	body := render(t, `[{{ Field (index .Images 0) "nope" }}]`, ctx, Options{})
+	body := render(t, `[{{ field (index .Images 0) "nope" }}]`, ctx, Options{})
 	if body != "[]" {
 		t.Errorf("got %q, want []", body)
 	}

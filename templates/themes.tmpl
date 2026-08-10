@@ -13,7 +13,7 @@ last argument to `table`. Change it to "dark" if that suits your suite better.
 
 {{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · commit [`{{ .ShortSHA }}`]({{ .CommitURL }}) · [run #{{ .Run.Number }}]({{ .Run.URL }})
 {{ if .Published }}
-{{ range GroupBy .Images "dir" }}{{ Details (printf "<b>%s</b> · %d screens" .Key (len (Values .Images "screen"))) (Table .Images "screen" "theme" "light,dark" "light") }}
+{{ range groupBy .Images "dir" }}{{ details (printf "<b>%s</b> · %d screens" .Key (len (values .Images "screen"))) (table .Images "screen" "theme" "light,dark" "light") }}
 {{ end }}
 <sub>Kept on `{{ .Ref }}`, outside the default fetch refspec.</sub>
 {{- else if eq .State "publish-failed" }}

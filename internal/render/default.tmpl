@@ -2,7 +2,7 @@
 
 {{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · commit [`{{ .ShortSHA }}`]({{ .CommitURL }}) · [run #{{ .Run.Number }}]({{ .Run.URL }})
 {{ if eq .State "published" }}
-{{ range GroupBy .Images "dir" }}{{ if .Key }}{{ Details (printf "<b>%s</b> · %d images" .Key (len .Images)) (Table .Images "name" "" "" "image") }}{{ else }}{{ Table .Images "name" "" "" "image" }}{{ end }}
+{{ range groupBy .Images "dir" }}{{ if .Key }}{{ details (printf "<b>%s</b> · %d images" .Key (len .Images)) (table .Images "name" "" "" "image") }}{{ else }}{{ table .Images "name" "" "" "image" }}{{ end }}
 {{ end }}
 <sub>Kept on `{{ .Ref }}`, outside the default fetch refspec — no clone or pull carries these.</sub>
 {{- else if eq .State "publish-failed" -}}
