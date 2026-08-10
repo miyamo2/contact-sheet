@@ -268,21 +268,21 @@ Failure
 ```
 
 `.Succeeded` and `.Published` are shorthands for the two comparisons templates
-make most. An image's `.Match` holds the layout's captures, and `field img "x"`
+make most. An image's `.Match` holds the layout's captures, and `Field img "x"`
 reads either a built-in field or a capture by the same name.
 
 ### Helpers
 
 | | |
 | --- | --- |
-| `groupBy images "dir"` | splits into `.Key` / `.Images` buckets by any field or capture |
-| `filter images "theme" "dark"` | keeps the images whose field equals a value |
-| `values images "theme"` | the distinct values of a field, in first-appearance order |
-| `orderBy names "a,b"` | sorts, putting the listed names first |
-| `table images row col colOrder colDefault` | a Markdown table: one row per `row` value, one column per `col` value. An empty `col` puts everything in one column headed `colDefault` |
-| `img image` | one `<img>`, or an em dash when there is no URL |
-| `details summary body` | a collapsed `<details>` block |
-| `field` · `split` · `join` | one field of one image; string to list; list to string |
+| `GroupBy images "dir"` | splits into `.Key` / `.Images` buckets by any field or capture |
+| `Filter images "theme" "dark"` | keeps the images whose field equals a value |
+| `Values images "theme"` | the distinct values of a field, in first-appearance order |
+| `OrderBy names "a,b"` | sorts, putting the listed names first |
+| `Table images row col colOrder colDefault` | a Markdown table: one row per `row` value, one column per `col` value. An empty `col` puts everything in one column headed `colDefault` |
+| `Img image` | one `<img>`, or an em dash when there is no URL |
+| `Details summary body` | a collapsed `<details>` block |
+| `Field` · `Split` · `Join` | one field of one image; string to list; list to string |
 
 ### Every template has to handle three states
 
@@ -291,7 +291,7 @@ that renders images unconditionally will show broken URLs when the push fails:
 
 ```gotemplate
 {{ if eq .State "published" }}
-{{ range groupBy .Images "dir" }}{{ details .Key (table .Images "name" "" "" "image") }}{{ end }}
+{{ range GroupBy .Images "dir" }}{{ Details .Key (Table .Images "name" "" "" "image") }}{{ end }}
 {{- else if eq .State "publish-failed" }}
 {{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
 {{- else }}
@@ -320,7 +320,7 @@ would have posted, so a template can be iterated on locally in seconds.
 | `status` | `success` | outcome of the job that produced the images |
 | `comment-id` | `contact-sheet` | namespaces the comments this action owns |
 | `ref-namespace` | `refs/contact-sheet` | must be outside `refs/heads/*` |
-| `row-label` | `file name` | header of the first column of a `table` |
+| `row-label` | `file name` | header of the first column of a `Table` |
 | `image-width` | `360` | width on each `<img>`; `0` omits it |
 | `pull-number` | resolved from the commit | pull request to comment on |
 | `dry-run` | `false` | push nothing, comment nothing |

@@ -52,7 +52,7 @@ inputs:
     required: false
     default: refs/contact-sheet
   row-label:
-    description: Header of the first column of a table built by the `table` helper.
+    description: Header of the first column of a table built by the `Table` helper.
     required: false
     default: file name
   image-width:

@@ -11,7 +11,7 @@ nested file still reads unambiguously -- name the column to match:
 
 {{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · [run #{{ .Run.Number }}]({{ .Run.URL }})
 {{ if .Published }}
-{{ table .Images "path" "" "" "image" }}
+{{ Table .Images "path" "" "" "image" }}
 {{- else if eq .State "publish-failed" }}
 {{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
 {{- else }}

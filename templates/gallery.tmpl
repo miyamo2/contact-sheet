@@ -9,11 +9,11 @@ browser. Nothing here reads a capture, so it works against any layout, or none.
 ### {{ .Title }}
 
 {{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · [run #{{ .Run.Number }}]({{ .Run.URL }}) · {{ .Total }} images
-{{ if .Published }}{{ range groupBy .Images "dir" }}
+{{ if .Published }}{{ range GroupBy .Images "dir" }}
 <details>
 <summary><b>{{ if .Key }}{{ .Key }}{{ else }}images{{ end }}</b> · {{ len .Images }}</summary>
 
-{{ range .Images }}{{ img . }} {{ end }}
+{{ range .Images }}{{ Img . }} {{ end }}
 
 </details>
 {{- end }}

@@ -95,7 +95,7 @@ func (c Context) Published() bool { return c.State == StatePublished }
 type Options struct {
 	// ImageWidth is the width attribute on every <img>. Zero omits it.
 	ImageWidth int
-	// RowLabel heads the first column of a table built by the table helper.
+	// RowLabel heads the first column of a table built by the Table helper.
 	RowLabel string
 	// Limit caps the rendered body. GitHub rejects a comment over 65536
 	// characters; a body over the limit is an error the template author fixes
@@ -134,25 +134,29 @@ func New(name, text string, opt Options) (*Renderer, error) {
 func (r *Renderer) Name() string { return r.name }
 
 func (r *Renderer) funcs() template.FuncMap {
+	// The names are exported so that `go doc` and pkg.go.dev list them, and the
+	// map keys match them exactly: a template calls `GroupBy`, godoc documents
+	// GroupBy, and there is no second spelling to look up. text/template only
+	// requires a function name to start with a letter, so the case is free.
 	return template.FuncMap{
-		"img":     r.img,
-		"table":   r.table,
-		"groupBy": groupBy,
-		"orderBy": orderBy,
-		"filter":  filter,
-		"values":  values,
-		"field":   func(image sheet.Image, name string) string { return image.Field(name) },
-		"details": details,
-		"split":   split,
-		"join":    strings.Join,
+		"Img":     r.Img,
+		"Table":   r.Table,
+		"GroupBy": GroupBy,
+		"OrderBy": OrderBy,
+		"Filter":  Filter,
+		"Values":  Values,
+		"Field":   sheet.Image.Field,
+		"Details": Details,
+		"Split":   Split,
+		"Join":    strings.Join,
 	}
 }
 
-// img renders one image, or an em dash when there is nothing to render, so a
+// Img renders one image, or an em dash when there is nothing to render, so a
 // table stays rectangular when a row is missing a column. It takes either an
 // Image or a bare URL string, because a template that has already reached into
 // a map has the URL and not the Image.
-func (r *Renderer) img(v any) string {
+func (r *Renderer) Img(v any) string {
 	var url string
 	switch value := v.(type) {
 	case sheet.Image:
@@ -169,13 +173,13 @@ func (r *Renderer) img(v any) string {
 	return fmt.Sprintf("<img src=%q width=%q>", url, fmt.Sprint(r.opt.ImageWidth))
 }
 
-// table is a convenience, not the model. It lays images out with one row per
+// Table is a convenience, not the model. It lays images out with one row per
 // distinct rowField and one column per distinct colField; an empty colField
 // gives a single unnamed column. colOrder is a comma-separated list of column
 // names to put first, and anything unlisted follows lexically. colDefault is
 // the column for an image whose colField is empty, which an empty colField
 // makes true of every image -- that is how one column gets a heading.
-func (r *Renderer) table(images []sheet.Image, rowField, colField, colOrder, colDefault string) string {
+func (r *Renderer) Table(images []sheet.Image, rowField, colField, colOrder, colDefault string) string {
 	column := func(image sheet.Image) string {
 		if value := image.Field(colField); value != "" {
 			return value
@@ -191,8 +195,8 @@ func (r *Renderer) table(images []sheet.Image, rowField, colField, colOrder, col
 			names = append(names, name)
 		}
 	}
-	columns := orderBy(names, split(colOrder, ","))
-	rows := values(images, rowField)
+	columns := OrderBy(names, Split(colOrder, ","))
+	rows := Values(images, rowField)
 
 	cells := map[string]map[string]sheet.Image{}
 	for _, image := range images {
@@ -216,17 +220,17 @@ func (r *Renderer) table(images []sheet.Image, rowField, colField, colOrder, col
 	for _, row := range rows {
 		b.WriteString("\n| `" + row + "`")
 		for _, column := range columns {
-			b.WriteString(" | " + r.img(cells[row][column]))
+			b.WriteString(" | " + r.Img(cells[row][column]))
 		}
 		b.WriteString(" |")
 	}
 	return b.String()
 }
 
-// groupBy splits images by the value of one field, keeping the buckets in the
+// GroupBy splits images by the value of one field, keeping the buckets in the
 // order their first image appears -- which, since Collect sorts by path, is
 // stable across runs.
-func groupBy(images []sheet.Image, name string) []Bucket {
+func GroupBy(images []sheet.Image, name string) []Bucket {
 	var out []Bucket
 	index := map[string]int{}
 	for _, image := range images {
@@ -241,9 +245,9 @@ func groupBy(images []sheet.Image, name string) []Bucket {
 	return out
 }
 
-// orderBy sorts names so that everything in first appears first, in that order,
+// OrderBy sorts names so that everything in first appears first, in that order,
 // and the rest follows lexically.
-func orderBy(names, first []string) []string {
+func OrderBy(names, first []string) []string {
 	rank := map[string]int{}
 	for i, name := range first {
 		rank[name] = i
@@ -267,7 +271,8 @@ func orderBy(names, first []string) []string {
 	return out
 }
 
-func filter(images []sheet.Image, name, value string) []sheet.Image {
+// Filter keeps the images whose field equals value.
+func Filter(images []sheet.Image, name, value string) []sheet.Image {
 	var out []sheet.Image
 	for _, image := range images {
 		if image.Field(name) == value {
@@ -277,8 +282,8 @@ func filter(images []sheet.Image, name, value string) []sheet.Image {
 	return out
 }
 
-// values lists the distinct values of a field, in first-appearance order.
-func values(images []sheet.Image, name string) []string {
+// Values lists the distinct values of a field, in first-appearance order.
+func Values(images []sheet.Image, name string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, image := range images {
@@ -292,11 +297,14 @@ func values(images []sheet.Image, name string) []string {
 	return out
 }
 
-func details(summary, body string) string {
+// Details wraps body in a collapsed <details> block.
+func Details(summary, body string) string {
 	return "<details>\n<summary>" + summary + "</summary>\n\n" + body + "\n\n</details>"
 }
 
-func split(s, sep string) []string {
+// Split cuts s on sep and drops the empty pieces, which is what a
+// comma-separated input needs and strings.Split alone does not do.
+func Split(s, sep string) []string {
 	var out []string
 	for _, part := range strings.Split(s, sep) {
 		if part = strings.TrimSpace(part); part != "" {

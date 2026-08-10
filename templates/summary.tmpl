@@ -14,7 +14,7 @@ the first of several templates:
 {{ if .Published }}
 | directory | images |
 | --- | --- |
-{{ range groupBy .Images "dir" }}| `{{ if .Key }}{{ .Key }}{{ else }}.{{ end }}` | {{ len .Images }} |
+{{ range GroupBy .Images "dir" }}| `{{ if .Key }}{{ .Key }}{{ else }}.{{ end }}` | {{ len .Images }} |
 {{ end }}
 {{ .Total }} in total, on `{{ .Ref }}`.
 {{- else if eq .State "publish-failed" }}

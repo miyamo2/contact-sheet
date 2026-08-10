@@ -214,20 +214,20 @@ Total
 Failure
 ```
 
-`.Succeeded` と `.Published` は、テンプレートが最もよく書く2つの比較の短縮形だ。画像の `.Match` にはlayoutのキャプチャが入っていて、`field img "x"` は組み込みのフィールドとキャプチャを同じ書き方で読む。
+`.Succeeded` と `.Published` は、テンプレートが最もよく書く2つの比較の短縮形だ。画像の `.Match` にはlayoutのキャプチャが入っていて、`Field img "x"` は組み込みのフィールドとキャプチャを同じ書き方で読む。
 
 ### ヘルパー
 
 | | |
 | --- | --- |
-| `groupBy images "dir"` | 任意のフィールドやキャプチャで `.Key` / `.Images` のバケットに分ける |
-| `filter images "theme" "dark"` | フィールドが値に一致する画像だけ残す |
-| `values images "theme"` | フィールドの相異なる値を、最初に現れた順で返す |
-| `orderBy names "a,b"` | 並べ替える。列挙した名前が先に来る |
-| `table images row col colOrder colDefault` | Markdownのテーブル。`row` の値ごとに1行、`col` の値ごとに1列。`col` が空なら全部が1列に入り、その列の見出しが `colDefault` になる |
-| `img image` | `<img>` を1つ。URLがなければem dash |
-| `details summary body` | 折りたたんだ `<details>` |
-| `field` · `split` · `join` | 画像の1フィールド／文字列をリストへ／リストを文字列へ |
+| `GroupBy images "dir"` | 任意のフィールドやキャプチャで `.Key` / `.Images` のバケットに分ける |
+| `Filter images "theme" "dark"` | フィールドが値に一致する画像だけ残す |
+| `Values images "theme"` | フィールドの相異なる値を、最初に現れた順で返す |
+| `OrderBy names "a,b"` | 並べ替える。列挙した名前が先に来る |
+| `Table images row col colOrder colDefault` | Markdownのテーブル。`row` の値ごとに1行、`col` の値ごとに1列。`col` が空なら全部が1列に入り、その列の見出しが `colDefault` になる |
+| `Img image` | `<img>` を1つ。URLがなければem dash |
+| `Details summary body` | 折りたたんだ `<details>` |
+| `Field` · `Split` · `Join` | 画像の1フィールド／文字列をリストへ／リストを文字列へ |
 
 ### 3つの状態を必ず書き分ける
 
@@ -235,7 +235,7 @@ Failure
 
 ```gotemplate
 {{ if eq .State "published" }}
-{{ range groupBy .Images "dir" }}{{ details .Key (table .Images "name" "" "" "image") }}{{ end }}
+{{ range GroupBy .Images "dir" }}{{ Details .Key (Table .Images "name" "" "" "image") }}{{ end }}
 {{- else if eq .State "publish-failed" }}
 {{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
 {{- else }}
@@ -263,7 +263,7 @@ $ contact-sheet --dry-run --path e2e/captures --template-files .github/contact-s
 | `status` | `success` | 画像を作ったジョブの結果 |
 | `comment-id` | `contact-sheet` | このアクションが持つコメントの名前空間 |
 | `ref-namespace` | `refs/contact-sheet` | `refs/heads/*` の外である必要がある |
-| `row-label` | `file name` | `table` の1列目の見出し |
+| `row-label` | `file name` | `Table` の1列目の見出し |
 | `image-width` | `360` | 各 `<img>` の幅。`0` で省略 |
 | `pull-number` | コミットから解決 | コメントするプルリクエスト |
 | `dry-run` | `false` | プッシュもコメントもしない |
