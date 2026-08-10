@@ -201,7 +201,7 @@ The body is a [text/template](https://pkg.go.dev/text/template). Point
 
 ### One template, one comment
 
-`template-files` takes a comma-separated list, and each file writes its own
+`template-files` takes a comma-separated list, and each entry writes its own
 comment, in the order given. That is how you decide how many comments a run
 leaves:
 
@@ -218,6 +218,34 @@ list and its comment is deleted on the next run.
 A body over GitHub's 65536-character limit is an error naming the template that
 overflowed. Nothing is trimmed to fit — the action cannot know which images you
 wanted — and the fix is another template.
+
+### Templates you do not have to write
+
+An entry is a path in your checkout or an `https://` URL, so the four in this
+repository's [`templates/`](./templates) can be used without copying them:
+
+```yaml
+- uses: miyamo2/contact-sheet@v1
+  with:
+    path: e2e/captures
+    template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/v1/templates/gallery.tmpl
+```
+
+| | |
+| --- | --- |
+| [`gallery.tmpl`](./templates/gallery.tmpl) | images inline, side by side, one folded section per directory. No table, no captures needed |
+| [`flat.tmpl`](./templates/flat.tmpl) | one table of every image, rows labelled by path. Pair with `row-label: path` |
+| [`summary.tmpl`](./templates/summary.tmpl) | counts and links, no images. Small enough to sit at the top of a long pull request |
+| [`themes.tmpl`](./templates/themes.tmpl) | a row per screen and a column per theme, from a `layout` naming those two captures |
+
+Pin the URL to a tag rather than a branch, the same as the `uses:` line above:
+the templates are versioned with the action, and a template ahead of your binary
+can call a helper it does not have.
+
+Two things a URL cannot do. It is fetched anonymously — nothing of yours is sent
+with the request, `GITHUB_TOKEN` included — so a private URL will not resolve,
+and it has to be `https`, because whatever comes back is posted as a comment on
+your pull request.
 
 ### The context
 

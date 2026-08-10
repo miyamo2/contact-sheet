@@ -1,0 +1,23 @@
+{{/*
+themes -- one row per screen, one column per theme.
+
+Needs a layout naming those two captures, e.g.
+
+  layout: '^(?:[^/]+/)?(?P<screen>.+?)(?:-(?P<theme>light|dark))?\.png$'
+  template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/v1/templates/themes.tmpl
+
+A shot with no -light or -dark suffix lands in the light column, which is the
+last argument to `table`. Change it to "dark" if that suits your suite better.
+*/ -}}
+### {{ .Title }}
+
+{{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · commit [`{{ .ShortSHA }}`]({{ .CommitURL }}) · [run #{{ .Run.Number }}]({{ .Run.URL }})
+{{ if .Published }}
+{{ range groupBy .Images "dir" }}{{ details (printf "<b>%s</b> · %d screens" .Key (len (values .Images "screen"))) (table .Images "screen" "theme" "light,dark" "light") }}
+{{ end }}
+<sub>Kept on `{{ .Ref }}`, outside the default fetch refspec.</sub>
+{{- else if eq .State "publish-failed" }}
+{{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
+{{- else }}
+This run produced no images.
+{{- end }}

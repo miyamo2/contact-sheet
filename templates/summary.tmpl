@@ -1,0 +1,24 @@
+{{/*
+summary -- counts and links, no images.
+
+Small enough to stay readable at the top of a long pull request, and useful as
+the first of several templates:
+
+  template-files: >-
+    https://raw.githubusercontent.com/miyamo2/contact-sheet/v1/templates/summary.tmpl,
+    .github/contact-sheet.tmpl
+*/ -}}
+### {{ .Title }}
+
+{{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · [run #{{ .Run.Number }}]({{ .Run.URL }}) · commit [`{{ .ShortSHA }}`]({{ .CommitURL }})
+{{ if .Published }}
+| directory | images |
+| --- | --- |
+{{ range groupBy .Images "dir" }}| `{{ if .Key }}{{ .Key }}{{ else }}.{{ end }}` | {{ len .Images }} |
+{{ end }}
+{{ .Total }} in total, on `{{ .Ref }}`.
+{{- else if eq .State "publish-failed" }}
+{{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
+{{- else }}
+This run produced no images.
+{{- end }}

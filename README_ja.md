@@ -157,7 +157,7 @@ captures/mobile-chromium/menu-modal.png           ->  screen=menu-modal    theme
 
 ### テンプレート1枚がコメント1つ
 
-`template-files` はカンマ区切りのリストを取り、各ファイルが並び順どおりに自分のコメントを書く。1回の実行が残すコメントの数は、これで決まる:
+`template-files` はカンマ区切りのリストを取り、各エントリが並び順どおりに自分のコメントを書く。1回の実行が残すコメントの数は、これで決まる:
 
 ```yaml
     template-files: .github/summary.tmpl,.github/desktop.tmpl,.github/mobile.tmpl
@@ -166,6 +166,28 @@ captures/mobile-chromium/menu-modal.png           ->  screen=menu-modal    theme
 各コメントには `<!-- <comment-id>:<拡張子を除いたファイル名> -->` が付く。テンプレートを改名すれば新しいコメントが始まり、リストを並べ替えても書き換え先は入れ替わらない。ベース名が同じファイルが2つあると、片方が他方を上書きする代わりにエラーになる。リストから外したテンプレートのコメントは、次の実行で削除される。
 
 GitHubの65536文字を超えた本文は、どのテンプレートが溢れたかを名指しするエラーになる。収めるための切り捨てはしない。どの画像が要るのかをアクションは知らないからで、直し方はテンプレートをもう1枚足すことだ。
+
+### 自分で書かなくていいテンプレート
+
+エントリにはチェックアウト内のパスのほかに `https://` のURLも書ける。このリポジトリの [`templates/`](./templates) にある4枚は、コピーせずそのまま使える:
+
+```yaml
+- uses: miyamo2/contact-sheet@v1
+  with:
+    path: e2e/captures
+    template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/v1/templates/gallery.tmpl
+```
+
+| | |
+| --- | --- |
+| [`gallery.tmpl`](./templates/gallery.tmpl) | 画像を横に並べ、ディレクトリごとに折りたたむ。表を使わず、キャプチャも要らない |
+| [`flat.tmpl`](./templates/flat.tmpl) | 全画像を1つの表に。行の見出しはパスなので `row-label: path` と併せて使う |
+| [`summary.tmpl`](./templates/summary.tmpl) | 件数とリンクだけで画像を出さない。長いプルリクエストの先頭に置ける大きさ |
+| [`themes.tmpl`](./templates/themes.tmpl) | 画面ごとに1行、テーマごとに1列。2つのキャプチャを名付けた `layout` が要る |
+
+URLはブランチではなくタグに固定するとよい。上の `uses:` と同じ理由で、テンプレートはアクションと一緒にバージョンが進むので、バイナリより新しいテンプレートは手元にないヘルパーを呼びうる。
+
+URLにできないことが2つある。取得は匿名で、`GITHUB_TOKEN` を含め手元のものは何も送らないので、非公開のURLは解決できない。そして `https` に限る。返ってきたものがそのままプルリクエストのコメントになるからだ。
 
 ### テンプレートに渡る値
 

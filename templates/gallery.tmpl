@@ -1,0 +1,26 @@
+{{/*
+gallery -- images inline, no table.
+
+One folded section per directory, images laid side by side and wrapped by the
+browser. Nothing here reads a capture, so it works against any layout, or none.
+
+  template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/v1/templates/gallery.tmpl
+*/ -}}
+### {{ .Title }}
+
+{{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · [run #{{ .Run.Number }}]({{ .Run.URL }}) · {{ .Total }} images
+{{ if .Published }}{{ range groupBy .Images "dir" }}
+<details>
+<summary><b>{{ if .Key }}{{ .Key }}{{ else }}images{{ end }}</b> · {{ len .Images }}</summary>
+
+{{ range .Images }}{{ img . }} {{ end }}
+
+</details>
+{{- end }}
+
+<sub>Kept on `{{ .Ref }}`, outside the default fetch refspec.</sub>
+{{- else if eq .State "publish-failed" }}
+{{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`). They are in the artifacts on [the run]({{ .Run.URL }}).
+{{- else }}
+This run produced no images.
+{{- end }}

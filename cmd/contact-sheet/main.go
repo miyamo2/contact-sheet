@@ -14,12 +14,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/miyamo2/contact-sheet/internal/collect"
 	"github.com/miyamo2/contact-sheet/internal/ghapi"
@@ -71,7 +76,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	templates, err := templatesOf(cfg)
+	templates, err := templatesOf(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -246,27 +251,99 @@ type namedTemplate struct {
 	text string
 }
 
-func templatesOf(cfg config) ([]namedTemplate, error) {
-	files := splitList(cfg.templateFiles)
-	if len(files) == 0 {
+func templatesOf(ctx context.Context, cfg config) ([]namedTemplate, error) {
+	refs := splitList(cfg.templateFiles)
+	if len(refs) == 0 {
 		return []namedTemplate{{key: "default", name: "default", text: render.DefaultTemplate()}}, nil
 	}
-	out := make([]namedTemplate, 0, len(files))
+	out := make([]namedTemplate, 0, len(refs))
 	seen := map[string]bool{}
-	for _, file := range files {
-		raw, err := os.ReadFile(file)
+	for _, ref := range refs {
+		text, err := loadTemplate(ctx, http.DefaultClient, ref)
 		if err != nil {
 			return nil, fmt.Errorf("--template-files: %w", err)
 		}
-		key := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+		key, err := templateKey(ref)
+		if err != nil {
+			return nil, fmt.Errorf("--template-files: %w", err)
+		}
 		if seen[key] {
 			return nil, fmt.Errorf(
-				"--template-files: two files are both named %q, so one comment would overwrite the other", key)
+				"--template-files: two entries are both named %q, so one comment would overwrite the other", key)
 		}
 		seen[key] = true
-		out = append(out, namedTemplate{key: key, name: file, text: string(raw)})
+		out = append(out, namedTemplate{key: key, name: ref, text: text})
 	}
 	return out, nil
+}
+
+// remoteTemplateLimit caps a fetched body. A template has to render into a
+// 65536-character comment, so anything approaching a megabyte is a wrong URL --
+// an HTML error page, or a file that is not a template -- and reading it all
+// before finding that out is what the cap prevents.
+const remoteTemplateLimit = 1 << 20
+
+// loadTemplate reads a template from disk, or over HTTPS when the entry is a
+// URL. Nothing is sent with the request: GITHUB_TOKEN belongs to the repository
+// running the action and has no business reaching a third-party host, so a
+// template that needs authentication has to be checked out instead.
+func loadTemplate(ctx context.Context, client *http.Client, ref string) (string, error) {
+	if !strings.HasPrefix(ref, "http://") && !strings.HasPrefix(ref, "https://") {
+		raw, err := os.ReadFile(ref)
+		if err != nil {
+			return "", err
+		}
+		return string(raw), nil
+	}
+	if strings.HasPrefix(ref, "http://") {
+		// the body becomes a comment on your pull request; anyone on the path
+		// could rewrite it in transit
+		return "", fmt.Errorf("%s: templates must be fetched over https", ref)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, ref, nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", ref, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s: %s", ref, response.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, remoteTemplateLimit+1))
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", ref, err)
+	}
+	if len(body) > remoteTemplateLimit {
+		return "", fmt.Errorf("%s: over %d bytes; that is not a template", ref, remoteTemplateLimit)
+	}
+	return string(body), nil
+}
+
+// templateKey names the comment a template writes. It is the base name without
+// its extension, for a path and a URL alike, so moving a template to a remote
+// copy of itself keeps rewriting the same comment.
+func templateKey(ref string) (string, error) {
+	base := ref
+	if strings.HasPrefix(ref, "https://") || strings.HasPrefix(ref, "http://") {
+		parsed, err := url.Parse(ref)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", ref, err)
+		}
+		base = path.Base(parsed.Path)
+	} else {
+		base = filepath.Base(ref)
+	}
+	key := strings.TrimSuffix(base, filepath.Ext(base))
+	if key == "" || key == "." || key == "/" {
+		return "", fmt.Errorf("%s: no file name to take a comment key from", ref)
+	}
+	return key, nil
 }
 
 // renderOne executes one template. reserved is the room its marker takes out of
