@@ -1,0 +1,47 @@
+version: 2
+project_name: contact-sheet
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: contact-sheet
+    main: ./cmd/contact-sheet
+    binary: contact-sheet
+    env:
+      # the binary shells out to git and speaks https; neither needs cgo, and a
+      # static build is what makes one artifact work across runner images
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  # install.sh untars on every platform, so windows gets tar.gz too rather than
+  # a zip that would need a second code path
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  draft: false
+  prerelease: auto

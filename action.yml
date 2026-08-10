@@ -1,0 +1,129 @@
+name: Contact Sheet
+description: Attach artifact images to the pull request comment
+author: miyamo2
+branding:
+  icon: image
+  color: purple
+
+inputs:
+  path:
+    description: Directory of images to attach.
+    required: true
+  layout:
+    description: >-
+      Expression matched against each image's slash-separated path under `path`.
+      Its named captures place the image: `group` picks the table (optional),
+      `row` the line (required), `col` the column (optional).
+    required: false
+    default: '^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.png$'
+  group-order:
+    description: Comma-separated group names to sort first. Anything unlisted follows alphabetically.
+    required: false
+    default: ''
+  col-order:
+    description: Comma-separated column names to sort first.
+    required: false
+    default: light,dark
+  col-default:
+    description: Column for images whose path has no `col` capture. Defaults to the first of `col-order`.
+    required: false
+    default: ''
+  template-file:
+    description: >-
+      Path to a Go text/template file for the comment body. See the README for
+      the fields it is executed against. Defaults to the built-in template.
+    required: false
+    default: ''
+  title:
+    description: Heading passed to the template.
+    required: false
+    default: Contact Sheet
+  status:
+    description: >-
+      Outcome of the job that produced the images, `success` or `failure`.
+      Usually `${{ steps.<id>.outcome }}`.
+    required: false
+    default: success
+  comment-id:
+    description: >-
+      Identifies the comment to rewrite, as `<!-- <comment-id> -->`. Two
+      workflows commenting on the same pull request need two different ids.
+    required: false
+    default: contact-sheet
+  ref-namespace:
+    description: >-
+      Ref prefix the images are pushed under. Must be outside `refs/heads/*` so
+      the images stay out of the default fetch refspec.
+    required: false
+    default: refs/contact-sheet
+  row-label:
+    description: Header of each table's first column.
+    required: false
+    default: name
+  image-width:
+    description: Width attribute on each `<img>`. `0` omits it.
+    required: false
+    default: '360'
+  pull-number:
+    description: Pull request to comment on. Empty resolves it from the commit.
+    required: false
+    default: ''
+  dry-run:
+    description: Push nothing, comment nothing, print the body to the log.
+    required: false
+    default: 'false'
+  github-token:
+    description: Needs `contents: write` (to push the ref) and `pull-requests: write`.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  state:
+    description: '`published`, `publish-failed`, or `empty`.'
+    value: ${{ steps.contact-sheet.outputs.state }}
+  total:
+    description: Number of images in the comment.
+    value: ${{ steps.contact-sheet.outputs.total }}
+  ref:
+    description: Ref the images were pushed to, when state is `published`.
+    value: ${{ steps.contact-sheet.outputs.ref }}
+  commit:
+    description: Commit holding the images, when state is `published`.
+    value: ${{ steps.contact-sheet.outputs.commit }}
+  comment-id:
+    description: Id of the comment written.
+    value: ${{ steps.contact-sheet.outputs.comment-id }}
+  pull:
+    description: Pull request commented on.
+    value: ${{ steps.contact-sheet.outputs.pull }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install contact-sheet
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: bash "${ACTION_PATH}/scripts/install.sh"
+
+    - name: Attach the contact sheet
+      id: contact-sheet
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        CONTACT_SHEET_PATH: ${{ inputs.path }}
+        CONTACT_SHEET_LAYOUT: ${{ inputs.layout }}
+        CONTACT_SHEET_GROUP_ORDER: ${{ inputs.group-order }}
+        CONTACT_SHEET_COL_ORDER: ${{ inputs.col-order }}
+        CONTACT_SHEET_COL_DEFAULT: ${{ inputs.col-default }}
+        CONTACT_SHEET_TEMPLATE_FILE: ${{ inputs.template-file }}
+        CONTACT_SHEET_TITLE: ${{ inputs.title }}
+        CONTACT_SHEET_STATUS: ${{ inputs.status }}
+        CONTACT_SHEET_COMMENT_ID: ${{ inputs.comment-id }}
+        CONTACT_SHEET_REF_NAMESPACE: ${{ inputs.ref-namespace }}
+        CONTACT_SHEET_ROW_LABEL: ${{ inputs.row-label }}
+        CONTACT_SHEET_IMAGE_WIDTH: ${{ inputs.image-width }}
+        CONTACT_SHEET_PULL_NUMBER: ${{ inputs.pull-number }}
+        CONTACT_SHEET_DRY_RUN: ${{ inputs.dry-run }}
+      run: contact-sheet

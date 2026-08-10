@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+
+      - run: go vet ./...
+      - run: go test ./... -race
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+
+      # the composite action's contract is that `contact-sheet` runs with no
+      # arguments and env alone; this is the cheapest check that it still does
+      - name: Render a sheet without a token
+        run: |
+          go build -o /tmp/contact-sheet ./cmd/contact-sheet
+          CONTACT_SHEET_PATH=internal/collect/testdata/captures \
+          CONTACT_SHEET_DRY_RUN=true \
+          CONTACT_SHEET_GROUP_ORDER=desktop-chromium,mobile-chromium \
+            /tmp/contact-sheet
+
+  shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: shellcheck scripts/install.sh
