@@ -45,6 +45,7 @@ type config struct {
 	status        string
 	refNamespace  string
 	rowLabel      string
+	sha           string
 	imageWidth    int
 	pullNumber    int
 	dryRun        bool
@@ -86,9 +87,23 @@ func run(ctx context.Context) error {
 		return err
 	}
 	logf("collected %d images for %d template(s)", collected.Total, len(templates))
+	if n := len(collected.Skipped); n > 0 {
+		// naming a few is enough to recognise the pattern; a directory holding
+		// thousands of them should not take the log with it
+		shown := collected.Skipped
+		if len(shown) > 5 {
+			shown = shown[:5]
+		}
+		logf("skipped %d file(s) whose name cannot be written into a comment: %q", n, shown)
+	}
 
 	repository := env("GITHUB_REPOSITORY", "")
-	sha := env("GITHUB_SHA", strings.Repeat("0", 40))
+	// a workflow_run job stands on the default branch, so the commit the images
+	// belong to is one only the workflow knows; GITHUB_SHA is right everywhere else
+	sha := cfg.sha
+	if sha == "" {
+		sha = env("GITHUB_SHA", strings.Repeat("0", 40))
+	}
 	serverURL := env("GITHUB_SERVER_URL", "https://github.com")
 	apiURL := env("GITHUB_API_URL", "https://api.github.com")
 	rawURL := env("GITHUB_RAW_URL", "https://raw.githubusercontent.com")
@@ -125,10 +140,20 @@ func run(ctx context.Context) error {
 			return nil
 		}
 		if pull.FromFork() {
-			// a fork's GITHUB_TOKEN is read-only: it can neither push the ref
-			// nor write the comment
-			logf("#%d comes from a fork; skipping", pull.Number)
-			return nil
+			// a fork's pull request is not out of bounds -- the token is. The
+			// workflow the fork triggered holds a read-only one, which can
+			// neither push the ref nor write the comment; the same pull request
+			// commented on from a workflow_run job holds this repository's,
+			// which can. See "Pull requests from forks" in the README
+			writable, err := client.Writable(ctx)
+			if err != nil {
+				return err
+			}
+			if !writable {
+				logf("#%d comes from a fork and this token cannot write to %s; skipping", pull.Number, repository)
+				return nil
+			}
+			logf("#%d comes from a fork, and this token can write to %s", pull.Number, repository)
 		}
 	}
 
@@ -369,11 +394,19 @@ func resolvePull(ctx context.Context, client *ghapi.Client, number int, sha stri
 	return client.PullForCommit(ctx, sha)
 }
 
-// withURLs fills in each image's URL now that a commit holds it.
+// withURLs fills in each image's URL now that a commit holds it. Every segment
+// is escaped separately, the slashes between them being the only ones that are
+// path: collect passes a space, a `#` and anything outside ASCII through, and
+// none of the three survives being dropped into a URL as it stands.
 func withURLs(images []sheet.Image, rawURL, repository, commit string) []sheet.Image {
 	out := make([]sheet.Image, 0, len(images))
 	for _, image := range images {
-		image.URL = fmt.Sprintf("%s/%s/%s/%s", strings.TrimSuffix(rawURL, "/"), repository, commit, image.Path)
+		segments := strings.Split(image.Path, "/")
+		for i, segment := range segments {
+			segments[i] = url.PathEscape(segment)
+		}
+		image.URL = fmt.Sprintf("%s/%s/%s/%s",
+			strings.TrimSuffix(rawURL, "/"), repository, commit, strings.Join(segments, "/"))
 		out = append(out, image)
 	}
 	return out

@@ -27,6 +27,8 @@ func parseFlags() config {
 		"ref prefix the images are pushed under; must be outside refs/heads/*")
 	flag.StringVar(&cfg.rowLabel, "row-label", envString("ROW_LABEL", "file name"),
 		"header of the first column of a table built by the table helper")
+	flag.StringVar(&cfg.sha, "sha", envString("SHA", ""),
+		"commit the images belong to; empty takes GITHUB_SHA")
 	flag.IntVar(&cfg.imageWidth, "image-width", envInt("IMAGE_WIDTH", 360),
 		"width attribute on each <img>; 0 omits it")
 	flag.IntVar(&cfg.pullNumber, "pull-number", envInt("PULL_NUMBER", 0),

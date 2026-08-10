@@ -115,16 +115,100 @@ $ git push origin :refs/contact-sheet/pr-42/12345678.1
 | [git-fetch, "Configured Remote-tracking Branches"](https://git-scm.com/docs/git-fetch#_configured_remote_tracking_branches) | the default refspec — why `refs/heads/*` arrives and nothing else does |
 | [git-push, `<refspec>`](https://git-scm.com/docs/git-push#Documentation/git-push.txt-ltrefspecgt) | the `HEAD:refs/…` form, and deleting a ref with a leading colon |
 
-### Two things this cannot do
+### What this cannot do
 
 **Private repositories.** `raw.githubusercontent.com` serves a private
 repository only through a short-lived token URL, which a comment cannot load. On
 a private repository the action skips the push and writes a comment saying where
 the images are instead. Nothing else about the run changes.
 
-**Pull requests from forks.** A fork's `GITHUB_TOKEN` is read-only: it can
-neither push the ref nor write the comment. The action detects this and exits
-without doing anything.
+## Pull requests from forks
+
+A workflow a fork's pull request triggered holds a read-only `GITHUB_TOKEN`.
+GitHub caps it there because the workflow is running the fork's code, and no
+input to this action lifts the cap: that token can neither push the ref nor
+write the comment.
+
+What lifts it is running somewhere else. Split the run in two — the fork's code
+produces the images with a token worth nothing, and a second workflow, yours,
+off your default branch, turns them into the comment:
+
+```yaml
+# .github/workflows/e2e.yaml — runs the pull request's code
+name: E2E
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: captures
+          path: e2e/captures
+```
+
+```yaml
+# .github/workflows/contact-sheet.yaml — runs yours
+name: Contact Sheet
+on:
+  workflow_run:
+    workflows: [E2E]
+    types: [completed]
+
+permissions:
+  actions: read          # reads the artifact off the run that triggered this
+  contents: write        # pushes the images to refs/contact-sheet/*
+  pull-requests: write   # writes the comment
+
+jobs:
+  comment:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: captures
+          path: captures
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - uses: miyamo2/contact-sheet@v1
+        with:
+          path: captures
+          sha: ${{ github.event.workflow_run.head_sha }}
+          status: ${{ github.event.workflow_run.conclusion }}
+```
+
+That is the whole change, and it covers your own branches too — `workflow_run`
+fires for every run of `E2E`, whoever opened the pull request. Four things are
+worth knowing before you copy it:
+
+| | |
+| --- | --- |
+| `sha` | a `workflow_run` job stands on your default branch, so `GITHUB_SHA` is not the commit under review. This input is what the status line shows and what the pull request is resolved from |
+| no checkout | nothing here fetches the fork's head. The artifact is image bytes; if you need a custom template, `actions/checkout` in this workflow gives you *your* default branch, which is where it should live |
+| `workflow_run` runs the default branch's copy | so this file only starts working one merge after you write it |
+| `status` | `workflow_run.conclusion` is the whole triggering run's outcome, not one step's |
+
+The action makes its own decision either way. Faced with a fork's pull request
+it asks GitHub whether the token it was handed can write to the repository, and
+skips the run when it cannot rather than failing — so leaving a plain
+single-workflow setup in place costs nothing, and a repository that hands write
+tokens to fork pull requests on purpose is not second-guessed.
+
+### What a fork gets to decide
+
+Images and file names, and nothing else. The images are pushed to a ref of
+yours, which costs storage; the names are written into the comment, which is
+where the care goes. A file whose name would end the table cell, code span or
+tag a template put it in is not collected — see
+[Choosing which files to collect](#choosing-which-files-to-collect).
 
 ## How this compares
 
@@ -188,6 +272,26 @@ captures/mobile-chromium/menu-modal.png           ->  screen=menu-modal    theme
 
 and a template then groups by `dir` and columns by `theme`. Go's regexp syntax
 uses `(?P<name>...)`, not `(?<name>...)`.
+
+### Names that cannot go in a comment
+
+One more file is skipped whatever the layout says: one whose path holds a
+control character, invalid UTF-8, or any of
+
+```
+` | < > " \ [ ]
+```
+
+Each of those ends the table cell, code span, tag or link a template wrote the
+name into, and starts something else. The log names the files this leaves out,
+so they do not go missing quietly.
+
+They are refused rather than escaped because the right escaping depends on where
+the template puts the name, and that is the template author's decision, not the
+action's. It matters most on [a pull request from a
+fork](#pull-requests-from-forks), where the names were chosen by whoever opened
+it — a space, a `#`, or a name in any script are all still fine, and are escaped
+properly where they land in a URL.
 
 ## Writing the comment
 
@@ -320,6 +424,7 @@ would have posted, so a template can be iterated on locally in seconds.
 | `ref-namespace` | `refs/contact-sheet` | must be outside `refs/heads/*` |
 | `row-label` | `file name` | header of the first column of a `table` |
 | `image-width` | `360` | width on each `<img>`; `0` omits it |
+| `sha` | `GITHUB_SHA` | commit the images belong to; a `workflow_run` job wants `github.event.workflow_run.head_sha` |
 | `pull-number` | resolved from the commit | pull request to comment on |
 | `dry-run` | `false` | push nothing, comment nothing |
 | `github-token` | `github.token` | needs `contents: write` and `pull-requests: write` |

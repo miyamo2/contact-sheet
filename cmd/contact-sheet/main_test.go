@@ -174,3 +174,30 @@ func withURL(i sheet.Image) sheet.Image {
 	i.URL = "https://raw.example/" + i.Path
 	return i
 }
+
+// collect lets a space, a `#` and anything outside ASCII through, none of which
+// is a URL character. An unescaped one is a broken image at best, and at worst
+// -- on a fork's pull request, where the file names are not ours -- a way out of
+// the src attribute they are written into.
+func TestWithURLsEscapesEachSegment(t *testing.T) {
+	got := withURLs([]sheet.Image{
+		sheet.NewImage("desktop chromium/about #1.png", nil),
+		sheet.NewImage("日本語/ホーム.png", nil),
+		sheet.NewImage("plain/about.png", nil),
+	}, "https://raw.githubusercontent.com/", "o/r", "abc123")
+
+	want := []string{
+		"https://raw.githubusercontent.com/o/r/abc123/desktop%20chromium/about%20%231.png",
+		"https://raw.githubusercontent.com/o/r/abc123/%E6%97%A5%E6%9C%AC%E8%AA%9E/%E3%83%9B%E3%83%BC%E3%83%A0.png",
+		"https://raw.githubusercontent.com/o/r/abc123/plain/about.png",
+	}
+	for i, image := range got {
+		if image.URL != want[i] {
+			t.Errorf("%s\n got %s\nwant %s", image.Path, image.URL, want[i])
+		}
+		// the slashes between segments are path and stay slashes
+		if strings.Count(image.URL, "/") != strings.Count(want[i], "/") {
+			t.Errorf("%s: separators were escaped", image.Path)
+		}
+	}
+}

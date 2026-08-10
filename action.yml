@@ -59,6 +59,14 @@ inputs:
     description: Width attribute on each `<img>`. `0` omits it.
     required: false
     default: '360'
+  sha:
+    description: >-
+      Commit the images belong to: the one shown in the status line, and the one
+      the pull request is resolved from. Empty takes `GITHUB_SHA`, which is right
+      for every event except `workflow_run` -- there the job stands on the default
+      branch, and this wants `${{ github.event.workflow_run.head_sha }}`.
+    required: false
+    default: ''
   pull-number:
     description: Pull request to comment on. Empty resolves it from the commit.
     required: false
@@ -117,6 +125,7 @@ runs:
         CONTACT_SHEET_REF_NAMESPACE: ${{ inputs.ref-namespace }}
         CONTACT_SHEET_ROW_LABEL: ${{ inputs.row-label }}
         CONTACT_SHEET_IMAGE_WIDTH: ${{ inputs.image-width }}
+        CONTACT_SHEET_SHA: ${{ inputs.sha }}
         CONTACT_SHEET_PULL_NUMBER: ${{ inputs.pull-number }}
         CONTACT_SHEET_DRY_RUN: ${{ inputs.dry-run }}
       run: contact-sheet

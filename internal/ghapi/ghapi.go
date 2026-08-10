@@ -87,9 +87,33 @@ type PullRequest struct {
 }
 
 // FromFork reports whether the pull request's head lives in another repository.
-// A fork's GITHUB_TOKEN is read-only, so the push stage cannot run for one.
+// Whether that is a problem depends on the token, which is what Writable is
+// for: the same pull request is out of reach from the workflow it triggered and
+// in reach from one the base repository ran itself.
 func (p PullRequest) FromFork() bool {
 	return p.Head.Repo.FullName != "" && p.Head.Repo.FullName != p.Base.Repo.FullName
+}
+
+// Writable reports whether this token may write to the repository.
+//
+// It is asked rather than inferred. A fork's pull request gets a read-only
+// GITHUB_TOKEN under `pull_request` -- GitHub caps it there, because the
+// workflow it triggered is the fork's code -- and the same pull request
+// commented on from a `workflow_run` workflow gets the base repository's token,
+// which can push the ref and write the comment. The event name is a poor proxy
+// for that (`Send write tokens to workflows from fork pull requests` moves the
+// line, and a hand-supplied PAT ignores it entirely), while the repository
+// endpoint reports the permissions of whoever is holding the token.
+func (c *Client) Writable(ctx context.Context) (bool, error) {
+	var repo struct {
+		Permissions struct {
+			Push bool `json:"push"`
+		} `json:"permissions"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/repos/"+c.Repository, nil, &repo); err != nil {
+		return false, err
+	}
+	return repo.Permissions.Push, nil
 }
 
 // PullForCommit returns the pull request a commit belongs to. It prefers an

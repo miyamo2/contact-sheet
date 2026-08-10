@@ -15,8 +15,9 @@ name: Dogfooding
 #     request.
 #   - the command is restricted to a code owner or a maintainer because the job
 #     builds and runs the pull request's code with a token that can write to
-#     this repository. A pull request from a fork is refused outright -- the
-#     action skips one anyway, and checking a fork's head out here is what the
+#     this repository. A pull request from a fork is refused outright, whoever
+#     asked: the action itself will comment on one from a workflow_run job, but
+#     checking a fork's head out and running it here is exactly what the
 #     restriction exists to prevent.
 #   - one comment id and one ref namespace per template. The action deletes the
 #     comments its id owns that the run did not produce, so a shared id would
@@ -124,7 +125,7 @@ jobs:
 
           [[ "${pull[0]}" == open ]] || deny "#${PULL} is ${pull[0]}; leaving it alone"
           [[ "${pull[1]}" == "${REPOSITORY}" ]] \
-            || deny "#${PULL} comes from ${pull[1]:-a deleted fork}; the action skips a fork's pull request, and this workflow will not check one out"
+            || deny "#${PULL} comes from ${pull[1]:-a deleted fork}; this workflow will not check a fork's head out and run it with a write token"
 
           echo "allowed=true" >> "${GITHUB_OUTPUT}"
           echo "head-sha=${pull[2]}" >> "${GITHUB_OUTPUT}"
