@@ -27,12 +27,6 @@ permissions:
   pull-requests: write   # writes the comment
 ```
 
-Screenshots are the obvious case, but nothing here is specific to them: the
-action takes a directory of images and a rule for arranging them, so
-visual-regression diffs, rendered plots and generated diagrams work the same
-way. Without it they stay in an artifact — a zip behind a login, which cannot
-be opened during a review.
-
 ## What the comment looks like
 
 One heading, one status line, and a folded section per directory. Nothing is
@@ -77,9 +71,7 @@ Nothing to show:
 No images under the configured path matched the layout — see [the logs](…).
 ```
 
-`contact-sheet --print-template` prints the template behind all three. It is a
-starting point, not a constraint: the action does not know that a contact sheet
-is a table, and neither has your template to.
+`contact-sheet --print-template` prints the template behind all three.
 
 ## Where the images go
 
@@ -138,8 +130,7 @@ without doing anything.
 
 ## How this compares
 
-These tools differ on one thing: where the images live, because a comment can
-only load a public http(s) URL.
+These tools differ on one thing: where the images live.
 
 | where the images live | what that costs |
 | --- | --- |
@@ -159,8 +150,7 @@ Two more differences decide whether this is the right tool:
 for you, which is less setup right up until your suite already has a screenshot
 step with its own fixtures, auth and viewports. Contact Sheet starts
 from a directory that already exists, so Playwright, Cypress, Storybook or a
-plotting script all feed it the same way — and the grouping follows your file
-names rather than a layout it imposes.
+plotting script all feed it the same way.
 
 **It does not diff them.** No baseline, no approval workflow, nothing fails on
 a changed pixel. If you need a build to block on a visual change, use one of
@@ -182,9 +172,8 @@ each file's slash-separated path under `path`, and it does two things:
 | filters | a file it does not match is skipped, so a trace or a `.gitkeep` in the same directory is harmless |
 | annotates | it lifts pieces of the path out by name and attaches them to the image, for your template to group and order by |
 
-The lifting is done by Go's named capture groups, `(?P<name>...)`, called
-captures from here on — not the screenshots, which this README also calls
-captures where they sit in `e2e/captures`.
+The lifting is done by Go's named capture groups, `(?P<name>...)` — captures
+from here on, not the screenshots sitting in `e2e/captures`.
 
 The names are yours. The action reads none of them — there is no `row`, no
 `col`, no reserved word. A suite with one project per viewport and a light/dark
@@ -294,14 +283,6 @@ reads either a built-in field or a capture by the same name.
 | `img image` | one `<img>`, or an em dash when there is no URL |
 | `details summary body` | a collapsed `<details>` block |
 | `field` · `split` · `join` | one field of one image; string to list; list to string |
-
-The built-in template uses four of them and nothing else:
-
-```gotemplate
-{{ range groupBy .Images "dir" }}
-{{ details .Key (table .Images "name" "" "" "image") }}
-{{ end }}
-```
 
 ### Every template has to handle three states
 
