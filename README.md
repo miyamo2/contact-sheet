@@ -33,6 +33,57 @@ visual-regression diffs, rendered plots and generated diagrams work the same
 way. Without it they stay in an artifact — a zip behind a login, which cannot
 be opened during a review.
 
+## What the comment looks like
+
+One heading, one status line, and a `<details>` block per group. This is the
+body the workflow above posts, trimmed to one group and two rows, with the
+image URLs shortened to fit the page:
+
+```markdown
+<!-- contact-sheet -->
+### Contact Sheet
+
+✅ passed · commit [`9f1c2ab`](https://github.com/miyamo2/blog/commit/9f1c2ab…) · [run #42](https://github.com/miyamo2/blog/actions/runs/12345678)
+
+<details>
+<summary><b>desktop-chromium</b> · 3 rows</summary>
+
+| screen | light | dark |
+| --- | --- | --- |
+| `about` | <img src="https://raw.githubusercontent.com/miyamo2/blog/4c7e0d1…/desktop-chromium/about-light.png" width="360"> | <img src="…/desktop-chromium/about-dark.png" width="360"> |
+| `menu-modal` | <img src="…/desktop-chromium/menu-modal.png" width="360"> | — |
+
+</details>
+
+<sub>Kept on `refs/contact-sheet/pr-7/12345678.1`, outside the default fetch refspec — no clone or pull carries these.</sub>
+```
+
+Four things in there are worth knowing:
+
+| | |
+| --- | --- |
+| `<!-- contact-sheet -->` | the marker the next run looks for, which is how the comment is rewritten in place instead of a new one piling up per push |
+| ✅ / ❌ | the `status` input, i.e. the job that produced the images — not whether publishing them worked |
+| `4c7e0d1…` in the URLs | the orphan commit holding the images, which is not the head commit `9f1c2ab` |
+| `—` | the row has no image for that column |
+
+Groups are collapsed so a run covering six viewports does not fill the page. A
+layout with no `group` capture produces one table and no `<details>` at all.
+
+The other two states are a single line. Publishing failed:
+
+```markdown
+13 images were collected, but pushing them failed (`…`). They are in the artifacts on [the run](…).
+```
+
+Nothing to show:
+
+```markdown
+No images were produced by this run — see [the logs](…) for what stopped it.
+```
+
+`contact-sheet --print-template` prints the template behind all three.
+
 ## Where the images go
 
 A comment can only show an image from a public http(s) URL: GitHub's sanitiser
