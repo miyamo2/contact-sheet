@@ -120,7 +120,8 @@ func TestTemplatesRejectDuplicateKeys(t *testing.T) {
 }
 
 // The templates in this repository are advertised in the README and fetched by
-// URL, so a broken one is broken for everyone who pointed at it.
+// URL, so a broken one is broken for everyone who pointed at it. One subtest per
+// file, so CI can name the template that failed rather than the directory.
 func TestShippedTemplatesRender(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("..", "..", "templates", "*.tmpl"))
 	if err != nil {
@@ -142,26 +143,30 @@ func TestShippedTemplatesRender(t *testing.T) {
 	}
 
 	for _, file := range files {
-		raw, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, ctx := range states {
-			renderer, err := render.New(file, string(raw), render.Options{ImageWidth: 360, Limit: 65536})
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			raw, err := os.ReadFile(file)
 			if err != nil {
-				t.Fatalf("%s: %v", file, err)
+				t.Fatal(err)
 			}
-			body, err := renderer.Render(ctx)
-			if err != nil {
-				t.Fatalf("%s (%s): %v", file, ctx.State, err)
+			for _, ctx := range states {
+				t.Run(string(ctx.State), func(t *testing.T) {
+					renderer, err := render.New(file, string(raw), render.Options{ImageWidth: 360, Limit: 65536})
+					if err != nil {
+						t.Fatalf("parse: %v", err)
+					}
+					body, err := renderer.Render(ctx)
+					if err != nil {
+						t.Fatalf("render: %v", err)
+					}
+					if strings.TrimSpace(body) == "" {
+						t.Error("rendered nothing")
+					}
+					if strings.Contains(body, "<no value>") {
+						t.Errorf("unresolved field:\n%s", body)
+					}
+				})
 			}
-			if strings.TrimSpace(body) == "" {
-				t.Errorf("%s (%s) rendered nothing", file, ctx.State)
-			}
-			if strings.Contains(body, "<no value>") {
-				t.Errorf("%s (%s) has an unresolved field:\n%s", file, ctx.State, body)
-			}
-		}
+		})
 	}
 }
 
