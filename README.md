@@ -130,9 +130,8 @@ without doing anything.
 
 ## How this compares
 
-Every action of this kind answers one question — where do the images live,
-given that a comment can only load a public http(s) URL — and the answer is
-most of what separates them:
+These tools differ on one thing: where the images live, because a comment can
+only load a public http(s) URL.
 
 | where the images live | what that costs |
 | --- | --- |
@@ -149,16 +148,16 @@ are the closest actions; both offer the middle two rows, defaulting to a branch.
 Two more differences decide whether this is the right tool:
 
 **It does not take the screenshots.** Those actions capture URLs or HTML files
-for you, which is the shorter path right up until your suite already has a
-capture step with its own fixtures, auth and viewports. Contact Sheet starts
+for you, which is less setup right up until your suite already has a capture
+step with its own fixtures, auth and viewports. Contact Sheet starts
 from a directory that already exists, so Playwright, Cypress, Storybook or a
 plotting script all feed it the same way — and the grouping follows your file
 names rather than a layout it imposes.
 
 **It does not diff them.** No baseline, no approval workflow, nothing fails on
-a changed pixel. If you need a build to block on a visual change, one of the
-services above is the answer; this puts images where a reviewer can see them
-and stops there.
+a changed pixel. If you need a build to block on a visual change, use one of
+the services above; this puts images where a reviewer can see them and stops
+there.
 
 ## Laying out your images
 
