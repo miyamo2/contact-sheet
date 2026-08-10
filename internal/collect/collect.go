@@ -1,90 +1,62 @@
-// Package collect turns a directory of images into the grouped table model.
+// Package collect walks a directory and returns the images in it.
 //
-// One regular expression does the whole job. It is matched against each file's
-// slash-separated path relative to the root, and its named captures decide
-// where the image lands:
+// The layout expression is optional and does two things, neither of which is
+// placement: it filters, and it extracts. A file the expression does not match
+// is skipped, and the named captures it does match become that image's Match
+// map for a template to group and order by. The names are the template author's
+// to choose -- collect attaches no meaning to any of them.
 //
-//	group  the table this image belongs to  (optional; absent -> one flat table)
-//	row    the line within that table       (required)
-//	col    the column within that line      (optional; absent -> ColDefault)
-//
-// Naming the three axes rather than hard-coding a directory layout is what lets
-// the same action serve `<project>/<screen>-<theme>.png` and `<name>.png` alike.
+// Without an expression every file whose extension looks like an image is
+// collected, and a template still has Dir and Name to work with.
 package collect
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/miyamo2/contact-sheet/internal/sheet"
 )
 
-// DefaultLayout matches `<group>/<row>[-light|-dark].<ext>`, the layout a
-// Playwright project-per-viewport suite produces. The light/dark alternation is
-// a guess about the caller and costs nothing when it does not apply -- a name
-// that does not end in one of them is simply the whole row. The extension list
-// is not a guess: a directory of .webp or .jpg would otherwise collect nothing
-// and report the run as empty, since an unmatched file is skipped in silence.
-const DefaultLayout = `^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.(?:png|jpe?g|gif|webp)$`
+// imageExtensions is what counts as an image when no layout expression narrows
+// it. SVG is absent on purpose: GitHub's image proxy does not render one from a
+// raw URL, so collecting them would produce broken cells rather than pictures.
+var imageExtensions = map[string]bool{
+	"png": true, "jpg": true, "jpeg": true, "gif": true, "webp": true,
+}
 
 type Options struct {
 	// Root is the directory to walk. A missing directory is not an error: it
-	// yields no groups, which the caller reports as the "empty" state.
-	Root   string
+	// yields no images, which the caller reports as the "empty" state.
+	Root string
+	// Layout filters and annotates. Nil collects every image file.
 	Layout *regexp.Regexp
-	// GroupOrder and ColOrder list names that sort first, in the order given.
-	// Anything not listed follows, sorted lexically.
-	GroupOrder []string
-	ColOrder   []string
-	// ColDefault names the column for images whose path has no `col` capture.
-	// Empty means "the first entry of ColOrder".
-	ColDefault string
 }
 
 type Result struct {
-	Groups []sheet.Group
-	// Paths lists every matched image, relative to Root and slash-separated, in
-	// the order the groups present them. This is what gets committed.
+	Images []sheet.Image
+	// Paths lists every collected image, relative to Root and slash-separated.
+	// This is what gets committed.
 	Paths []string
 	Total int
 }
 
-// Collect walks Root and builds the model. Files that the layout does not match
-// are skipped silently -- a captures directory holding a stray .gitkeep or a
-// trace should not fail the run.
+// Collect walks Root. Files that the layout does not match are skipped in
+// silence -- a captures directory holding a stray .gitkeep or a trace should not
+// fail the run -- and the images come back sorted by path so two runs over the
+// same directory produce the same comment.
 func Collect(o Options) (Result, error) {
-	if o.Layout == nil {
-		return Result{}, fmt.Errorf("collect: layout expression is required")
-	}
-	if err := requireCapture(o.Layout, "row"); err != nil {
-		return Result{}, err
-	}
+	var images []sheet.Image
 
-	// A layout with no `col` capture is not a sweep over anything: each row holds
-	// one image, and that column has no name to print. Falling back to ColOrder
-	// here would head a column of rendered charts with "light". Leave it nameless,
-	// the way a layout with no `group` capture leaves the group nameless.
-	hasCol := hasCapture(o.Layout, "col")
-	colDefault := ""
-	if hasCol {
-		colDefault = o.ColDefault
-		if colDefault == "" && len(o.ColOrder) > 0 {
-			colDefault = o.ColOrder[0]
-		}
-	}
-
-	// group name -> row name -> column -> relative path
-	tables := map[string]map[string]map[string]string{}
-	seenCols := map[string]bool{}
-
-	err := filepath.WalkDir(o.Root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(o.Root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// the root not existing is the caller's "no captures" case
-			if path == o.Root && errors.Is(err, fs.ErrNotExist) {
+			if p == o.Root && errors.Is(err, fs.ErrNotExist) {
 				return fs.SkipAll
 			}
 			return err
@@ -92,124 +64,57 @@ func Collect(o Options) (Result, error) {
 		if d.IsDir() {
 			return nil
 		}
-		rel, relErr := filepath.Rel(o.Root, path)
+		rel, relErr := filepath.Rel(o.Root, p)
 		if relErr != nil {
 			return relErr
 		}
 		rel = filepath.ToSlash(rel)
 
+		if o.Layout == nil {
+			if !imageExtensions[strings.ToLower(strings.TrimPrefix(path.Ext(rel), "."))] {
+				return nil
+			}
+			images = append(images, sheet.NewImage(rel, nil))
+			return nil
+		}
+
 		match := o.Layout.FindStringSubmatch(rel)
 		if match == nil {
 			return nil
 		}
-		group := capture(o.Layout, match, "group")
-		row := capture(o.Layout, match, "row")
-		if row == "" {
-			return nil
+		captures := map[string]string{}
+		for i, name := range o.Layout.SubexpNames() {
+			if name == "" || i >= len(match) {
+				continue
+			}
+			captures[name] = match[i]
 		}
-		col := capture(o.Layout, match, "col")
-		if col == "" {
-			col = colDefault
-		}
-		if col == "" && hasCol {
-			return fmt.Errorf("collect: %s has no `col` capture and no col-default is set", rel)
-		}
-
-		seenCols[col] = true
-		rows, ok := tables[group]
-		if !ok {
-			rows = map[string]map[string]string{}
-			tables[group] = rows
-		}
-		cells, ok := rows[row]
-		if !ok {
-			cells = map[string]string{}
-			rows[row] = cells
-		}
-		if previous, taken := cells[col]; taken {
-			return fmt.Errorf("collect: %s and %s both land on %s/%s/%s", previous, rel, group, row, col)
-		}
-		cells[col] = rel
+		images = append(images, sheet.NewImage(rel, captures))
 		return nil
 	})
 	if err != nil {
 		return Result{}, err
 	}
 
-	columns := order(keys(seenCols), o.ColOrder)
-	result := Result{}
-	for _, name := range order(keys(tables), o.GroupOrder) {
-		group := sheet.Group{Name: name, Columns: columns}
-		rowNames := keys(tables[name])
-		sort.Strings(rowNames)
-		for _, rowName := range rowNames {
-			cells := tables[name][rowName]
-			group.Rows = append(group.Rows, sheet.Row{Name: rowName, Cells: cells})
-			for _, col := range columns {
-				if path, ok := cells[col]; ok {
-					result.Paths = append(result.Paths, path)
-				}
-			}
-		}
-		result.Groups = append(result.Groups, group)
+	sort.Slice(images, func(i, j int) bool { return images[i].Path < images[j].Path })
+
+	result := Result{Images: images, Total: len(images)}
+	for _, image := range images {
+		result.Paths = append(result.Paths, image.Path)
 	}
-	result.Total = len(result.Paths)
 	return result, nil
 }
 
-// order sorts names so that everything in first appears first, in that order,
-// and the rest follows lexically.
-func order(names, first []string) []string {
-	rank := map[string]int{}
-	for i, name := range first {
-		rank[name] = i
+// Compile turns the layout input into an expression. An empty string means "no
+// expression", which is not the same as one that matches everything: it also
+// switches on the extension filter.
+func Compile(layout string) (*regexp.Regexp, error) {
+	if strings.TrimSpace(layout) == "" {
+		return nil, nil
 	}
-	sort.Slice(names, func(i, j int) bool {
-		ri, oki := rank[names[i]]
-		rj, okj := rank[names[j]]
-		switch {
-		case oki && okj:
-			return ri < rj
-		case oki:
-			return true
-		case okj:
-			return false
-		default:
-			return names[i] < names[j]
-		}
-	})
-	return names
-}
-
-func keys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
+	re, err := regexp.Compile(layout)
+	if err != nil {
+		return nil, fmt.Errorf("collect: layout expression: %w", err)
 	}
-	return out
-}
-
-func capture(re *regexp.Regexp, match []string, name string) string {
-	for i, n := range re.SubexpNames() {
-		if n == name && i < len(match) {
-			return match[i]
-		}
-	}
-	return ""
-}
-
-func hasCapture(re *regexp.Regexp, name string) bool {
-	for _, n := range re.SubexpNames() {
-		if n == name {
-			return true
-		}
-	}
-	return false
-}
-
-func requireCapture(re *regexp.Regexp, name string) error {
-	if hasCapture(re, name) {
-		return nil
-	}
-	return fmt.Errorf("collect: the layout expression needs a (?P<%s>...) capture", name)
+	return re, nil
 }

@@ -4,8 +4,6 @@ import (
 	"flag"
 	"os"
 	"strconv"
-
-	"github.com/miyamo2/contact-sheet/internal/collect"
 )
 
 // Each flag's default comes from a CONTACT_SHEET_* variable. The composite
@@ -15,16 +13,10 @@ func parseFlags() config {
 	cfg := config{}
 	flag.StringVar(&cfg.path, "path", envString("PATH", ""),
 		"directory of images to attach (required)")
-	flag.StringVar(&cfg.layout, "layout", envString("LAYOUT", collect.DefaultLayout),
-		"expression with (?P<group>) (?P<row>) (?P<col>) captures, matched against each path under --path")
-	flag.StringVar(&cfg.groupOrder, "group-order", envString("GROUP_ORDER", ""),
-		"comma-separated group names to sort first")
-	flag.StringVar(&cfg.colOrder, "col-order", envString("COL_ORDER", "light,dark"),
-		"comma-separated column names to sort first")
-	flag.StringVar(&cfg.colDefault, "col-default", envString("COL_DEFAULT", ""),
-		"column for images whose path has no col capture (default: the first of --col-order)")
-	flag.StringVar(&cfg.templateFile, "template-file", envString("TEMPLATE_FILE", ""),
-		"text/template file for the comment body (default: the built-in one)")
+	flag.StringVar(&cfg.layout, "layout", envString("LAYOUT", ""),
+		"expression filtering the files and naming their captures; empty collects every image file")
+	flag.StringVar(&cfg.templateFiles, "template-files", envString("TEMPLATE_FILES", ""),
+		"comma-separated text/template files, one comment each (default: the built-in one)")
 	flag.StringVar(&cfg.commentID, "comment-id", envString("COMMENT_ID", "contact-sheet"),
 		"identifies the comment to rewrite; two workflows in one repository need two ids")
 	flag.StringVar(&cfg.title, "title", envString("TITLE", "Contact Sheet"),
@@ -33,8 +25,8 @@ func parseFlags() config {
 		"outcome of the job that produced the images: success or failure")
 	flag.StringVar(&cfg.refNamespace, "ref-namespace", envString("REF_NAMESPACE", "refs/contact-sheet"),
 		"ref prefix the images are pushed under; must be outside refs/heads/*")
-	flag.StringVar(&cfg.rowLabel, "row-label", envString("ROW_LABEL", "name"),
-		"header of the first column of each table")
+	flag.StringVar(&cfg.rowLabel, "row-label", envString("ROW_LABEL", "file name"),
+		"header of the first column of a table built by the table helper")
 	flag.IntVar(&cfg.imageWidth, "image-width", envInt("IMAGE_WIDTH", 360),
 		"width attribute on each <img>; 0 omits it")
 	flag.IntVar(&cfg.pullNumber, "pull-number", envInt("PULL_NUMBER", 0),

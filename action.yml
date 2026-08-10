@@ -12,26 +12,18 @@ inputs:
   layout:
     description: >-
       Expression matched against each image's slash-separated path under `path`.
-      Its named captures place the image: `group` picks the table (optional),
-      `row` the line (required), `col` the column (optional).
-    required: false
-    default: '^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.(?:png|jpe?g|gif|webp)$'
-  group-order:
-    description: Comma-separated group names to sort first. Anything unlisted follows alphabetically.
+      It filters -- a file it does not match is skipped -- and its named captures
+      become that image's metadata for a template to group and order by. The
+      names are yours; the action reads none of them. Empty, the default,
+      collects every file that looks like an image.
     required: false
     default: ''
-  col-order:
-    description: Comma-separated column names to sort first.
-    required: false
-    default: light,dark
-  col-default:
-    description: Column for images whose path has no `col` capture. Defaults to the first of `col-order`.
-    required: false
-    default: ''
-  template-file:
+  template-files:
     description: >-
-      Path to a Go text/template file for the comment body. See the README for
-      the fields it is executed against. Defaults to the built-in template.
+      Comma-separated Go text/template files, each producing one comment, in the
+      order given. This is how you control how many comments a run writes: a body
+      over GitHub's 65536-character limit is an error, and the fix is another
+      template. Defaults to the built-in template.
     required: false
     default: ''
   title:
@@ -46,8 +38,9 @@ inputs:
     default: success
   comment-id:
     description: >-
-      Identifies the comment to rewrite, as `<!-- <comment-id> -->`. Two
-      workflows commenting on the same pull request need two different ids.
+      Namespaces the comments this action owns, as `<!-- <comment-id>:<template> -->`.
+      Two workflows commenting on the same pull request need two different ids,
+      or each will delete the other's comments as no longer produced.
     required: false
     default: contact-sheet
   ref-namespace:
@@ -57,9 +50,9 @@ inputs:
     required: false
     default: refs/contact-sheet
   row-label:
-    description: Header of each table's first column.
+    description: Header of the first column of a table built by the `table` helper.
     required: false
-    default: name
+    default: file name
   image-width:
     description: Width attribute on each `<img>`. `0` omits it.
     required: false
@@ -73,7 +66,8 @@ inputs:
     required: false
     default: 'false'
   github-token:
-    description: Needs `contents: write` (to push the ref) and `pull-requests: write`.
+    description: >-
+      Needs `contents: write` (to push the ref) and `pull-requests: write`.
     required: false
     default: ${{ github.token }}
 
@@ -90,9 +84,9 @@ outputs:
   commit:
     description: Commit holding the images, when state is `published`.
     value: ${{ steps.contact-sheet.outputs.commit }}
-  comment-id:
-    description: Id of the comment written.
-    value: ${{ steps.contact-sheet.outputs.comment-id }}
+  comments:
+    description: Comma-separated ids of the comments written, in template order.
+    value: ${{ steps.contact-sheet.outputs.comments }}
   pull:
     description: Pull request commented on.
     value: ${{ steps.contact-sheet.outputs.pull }}
@@ -114,10 +108,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         CONTACT_SHEET_PATH: ${{ inputs.path }}
         CONTACT_SHEET_LAYOUT: ${{ inputs.layout }}
-        CONTACT_SHEET_GROUP_ORDER: ${{ inputs.group-order }}
-        CONTACT_SHEET_COL_ORDER: ${{ inputs.col-order }}
-        CONTACT_SHEET_COL_DEFAULT: ${{ inputs.col-default }}
-        CONTACT_SHEET_TEMPLATE_FILE: ${{ inputs.template-file }}
+        CONTACT_SHEET_TEMPLATE_FILES: ${{ inputs.template-files }}
         CONTACT_SHEET_TITLE: ${{ inputs.title }}
         CONTACT_SHEET_STATUS: ${{ inputs.status }}
         CONTACT_SHEET_COMMENT_ID: ${{ inputs.comment-id }}

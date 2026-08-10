@@ -31,7 +31,6 @@ jobs:
           go build -o /tmp/contact-sheet ./cmd/contact-sheet
           CONTACT_SHEET_PATH=internal/collect/testdata/captures \
           CONTACT_SHEET_DRY_RUN=true \
-          CONTACT_SHEET_GROUP_ORDER=desktop-chromium,mobile-chromium \
             /tmp/contact-sheet
 
   shell:

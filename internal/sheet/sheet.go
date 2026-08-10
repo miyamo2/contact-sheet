@@ -1,45 +1,73 @@
-// Package sheet holds the data model shared by every stage of the run.
+// Package sheet holds the one model every stage of the run shares: a flat list
+// of images.
 //
-// The shape is deliberately small: images are grouped, each group is a table of
-// rows, and each row holds one cell per column. Everything else -- the wording,
-// the ordering, whether a group becomes a <details> block -- is the template's
-// business.
+// It is deliberately flat. An earlier version carried groups, rows and columns,
+// which made "render a table" the only thing the action could do -- the shape of
+// the output was decided in Go, and a template could only fill it in. Grouping
+// is presentation, so it belongs to whoever writes the template; what the action
+// owes them is each image's location and whatever the layout expression learned
+// about it.
 package sheet
 
-// Row is one line of a group's table: a name and at most one image per column.
-type Row struct {
+import (
+	"path"
+	"strings"
+)
+
+// Image is one collected file. Path is the only field the publish stage needs;
+// the rest exist so a template can decide where the image goes.
+type Image struct {
+	// Path is relative to the collected root and slash-separated. It is both
+	// the path inside the pushed commit and the tail of URL.
+	Path string
+	// Dir is the directory part of Path, empty at the root. A capture-free
+	// layout can still group by it.
+	Dir string
+	// Name is the file name without its extension, and Ext is that extension
+	// without the dot.
 	Name string
-	// Cells is keyed by column name. A column with no image for this row is
-	// absent from the map rather than present and empty.
-	//
-	// Between collection and publication the values are repository-relative
-	// paths; main rewrites them to URLs once the commit holding them exists.
-	Cells map[string]string
+	Ext  string
+	// URL is the raw URL of Path in the commit that holds it. Empty until the
+	// push succeeds, which is why a template has to check State before using it.
+	URL string
+	// Match holds the layout expression's named captures for this file. A
+	// capture that did not participate is present and empty.
+	Match map[string]string
 }
 
-// Cell returns the value for a column, or "" when the row has no image there.
-// Templates use this instead of `index .Cells "light"` so a missing column
-// reads the same as an empty one.
-func (r Row) Cell(column string) string { return r.Cells[column] }
-
-// Group is one table. Name is the first capture of the layout expression, and
-// is empty when the layout has no `group` -- a flat directory produces a single
-// nameless group.
-type Group struct {
-	Name string
-	// Columns is repeated on every group so a template that ranges over groups
-	// can render a header without reaching back to the context.
-	Columns []string
-	Rows    []Row
-}
-
-// Total counts the images across every group.
-func Total(groups []Group) int {
-	n := 0
-	for _, g := range groups {
-		for _, r := range g.Rows {
-			n += len(r.Cells)
-		}
+// NewImage fills the derived fields from a slash-separated relative path.
+func NewImage(rel string, match map[string]string) Image {
+	ext := strings.TrimPrefix(path.Ext(rel), ".")
+	dir := path.Dir(rel)
+	if dir == "." {
+		dir = ""
 	}
-	return n
+	return Image{
+		Path:  rel,
+		Dir:   dir,
+		Name:  strings.TrimSuffix(path.Base(rel), path.Ext(rel)),
+		Ext:   ext,
+		Match: match,
+	}
+}
+
+// Field resolves a name against the built-in fields first and the layout's
+// captures second, so a template says `groupBy .Images "dir"` and
+// `groupBy .Images "theme"` the same way without knowing which is which.
+// An unknown name yields "" rather than an error: a capture that only some
+// files carry is a normal thing for a template to group by.
+func (i Image) Field(name string) string {
+	switch strings.ToLower(name) {
+	case "path":
+		return i.Path
+	case "dir":
+		return i.Dir
+	case "name":
+		return i.Name
+	case "ext":
+		return i.Ext
+	case "url":
+		return i.URL
+	}
+	return i.Match[name]
 }

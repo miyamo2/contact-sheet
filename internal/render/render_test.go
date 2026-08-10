@@ -7,173 +7,187 @@ import (
 	"github.com/miyamo2/contact-sheet/internal/sheet"
 )
 
-func groups(n int) []sheet.Group {
-	rows := make([]sheet.Row, 0, n)
-	for i := 0; i < n; i++ {
-		rows = append(rows, sheet.Row{
-			Name:  string(rune('a'+i%26)) + "-screen",
-			Cells: map[string]string{"light": "https://example.test/light.png", "dark": "https://example.test/dark.png"},
-		})
-	}
-	return []sheet.Group{{Name: "desktop", Columns: []string{"light", "dark"}, Rows: rows}}
+func image(path string, match map[string]string) sheet.Image {
+	i := sheet.NewImage(path, match)
+	i.URL = "https://raw.example/" + path
+	return i
 }
 
-func published(n int) Context {
+func published(images ...sheet.Image) Context {
 	return Context{
 		State:      StatePublished,
 		Status:     "success",
 		Title:      "Contact Sheet",
-		Repository: "owner/repo",
-		SHA:        strings.Repeat("a", 40),
-		ShortSHA:   "aaaaaaa",
-		Run:        Run{ID: "1", Number: "7", Attempt: "1", URL: "https://example.test/run"},
-		Pull:       Pull{Number: 42, URL: "https://example.test/pr/42"},
-		Ref:        "refs/contact-sheet/pr-42/1.1",
-		Commit:     strings.Repeat("b", 40),
-		Columns:    []string{"light", "dark"},
-		Groups:     groups(n),
-		Total:      n * 2,
+		Repository: "acme/app",
+		Ref:        "refs/contact-sheet/pr-1/1.1",
+		Run:        Run{Number: "1", URL: "https://example/run"},
+		Images:     images,
+		Total:      len(images),
 	}
 }
 
-func render(t *testing.T, ctx Context, opt Options) (string, Context) {
+func render(t *testing.T, text string, ctx Context, opt Options) string {
 	t.Helper()
-	r, err := New("default", DefaultTemplate(), opt)
+	r, err := New("test", text, opt)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	body, out, err := r.Render(ctx)
+	body, err := r.Render(ctx)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	return body, out
+	return body
 }
 
-func TestDefaultTemplateParsesAndCoversEveryState(t *testing.T) {
-	for _, state := range []State{StatePublished, StatePublishFailed, StateEmpty} {
-		ctx := published(2)
-		ctx.State = state
-		if state != StatePublished {
-			ctx.Groups = nil
-			ctx.Failure = "push rejected"
+// The table helper is the one place a template can lean on for the common
+// shape, so a row missing one column still has to come out rectangular --
+// otherwise Markdown drops the row rather than the cell.
+func TestTableFillsMissingCells(t *testing.T) {
+	ctx := published(
+		image("about-light.png", map[string]string{"screen": "about", "theme": "light"}),
+		image("about-dark.png", map[string]string{"screen": "about", "theme": "dark"}),
+		image("menu.png", map[string]string{"screen": "menu", "theme": "light"}),
+	)
+	body := render(t, `{{ table .Images "screen" "theme" "light,dark" "light" }}`, ctx, Options{RowLabel: "screen"})
+
+	if !strings.Contains(body, "| screen | light | dark |") {
+		t.Errorf("header missing or misordered:\n%s", body)
+	}
+	menu := ""
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "| `menu`") {
+			menu = line
 		}
-		body, _ := render(t, ctx, Options{ImageWidth: 360, RowLabel: "screen"})
-		if strings.TrimSpace(body) == "" {
-			t.Errorf("%s rendered an empty body", state)
-		}
-		if strings.Contains(body, "<no value>") {
-			t.Errorf("%s left an unresolved field:\n%s", state, body)
-		}
+	}
+	if menu == "" {
+		t.Fatalf("no row for menu:\n%s", body)
+	}
+	if strings.Count(menu, "|") != 4 {
+		t.Errorf("menu row is not rectangular: %s", menu)
+	}
+	if !strings.HasSuffix(menu, "— |") {
+		t.Errorf("missing dark cell should be an em dash: %s", menu)
 	}
 }
 
-// A failed push must not leave the reader with URLs that 404; it has to say
-// where the images actually are.
-func TestPublishFailedPointsAtTheArtifacts(t *testing.T) {
-	ctx := published(2)
-	ctx.State = StatePublishFailed
-	ctx.Groups = nil
-	ctx.Failure = "push rejected"
-	body, _ := render(t, ctx, Options{})
-	if !strings.Contains(body, "push rejected") {
-		t.Error("the reason is missing")
+// colOrder is what puts light before dark; without it the columns would come
+// out in whatever order the files were walked in.
+func TestTableOrdersColumns(t *testing.T) {
+	ctx := published(
+		image("a-dark.png", map[string]string{"screen": "a", "theme": "dark"}),
+		image("a-light.png", map[string]string{"screen": "a", "theme": "light"}),
+	)
+	body := render(t, `{{ table .Images "screen" "theme" "light,dark" "light" }}`, ctx, Options{})
+	if !strings.Contains(body, "| name | light | dark |") {
+		t.Errorf("want light before dark:\n%s", body)
+	}
+}
+
+// One column is the default shape: an empty colField sends every image to
+// colDefault, which is what heads that column.
+func TestTableWithOneColumn(t *testing.T) {
+	ctx := published(
+		image("latency.png", nil),
+		image("revenue.png", nil),
+	)
+	body := render(t, `{{ table .Images "name" "" "" "image" }}`, ctx, Options{RowLabel: "file name"})
+	if !strings.Contains(body, "| file name | image |") {
+		t.Errorf("want a single named column:\n%s", body)
+	}
+	if strings.Count(body, "<img") != 2 {
+		t.Errorf("want both images:\n%s", body)
+	}
+}
+
+// groupBy is what replaced the group capture: any field, including the built-in
+// Dir, splits the images without collect knowing anything about it.
+func TestGroupByAnyField(t *testing.T) {
+	ctx := published(
+		image("desktop/a.png", map[string]string{"screen": "a"}),
+		image("mobile/a.png", map[string]string{"screen": "a"}),
+		image("mobile/b.png", map[string]string{"screen": "b"}),
+	)
+	body := render(t, `{{ range groupBy .Images "dir" }}{{ .Key }}={{ len .Images }} {{ end }}`, ctx, Options{})
+	if strings.TrimSpace(body) != "desktop=1 mobile=2" {
+		t.Errorf("got %q", strings.TrimSpace(body))
+	}
+}
+
+// A capture the layout never named has to read as empty rather than blow up,
+// because a template written for one suite gets pointed at another.
+func TestFieldOfUnknownName(t *testing.T) {
+	ctx := published(image("a.png", nil))
+	body := render(t, `[{{ field (index .Images 0) "nope" }}]`, ctx, Options{})
+	if body != "[]" {
+		t.Errorf("got %q, want []", body)
+	}
+}
+
+// GitHub rejects a body over 65536 characters outright. The action cannot know
+// which images matter, so it says which template overflowed and stops, rather
+// than trimming rows nobody asked it to trim.
+func TestRenderRefusesToTrim(t *testing.T) {
+	ctx := published(image("a.png", nil))
+	r, err := New("big.tmpl", `{{ range .Images }}{{ .URL }}{{ end }}`, Options{Limit: 4})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = r.Render(ctx)
+	if err == nil {
+		t.Fatal("want an error when the body is over the limit")
+	}
+	if !strings.Contains(err.Error(), "big.tmpl") {
+		t.Errorf("error should name the template: %v", err)
+	}
+	if !strings.Contains(err.Error(), "split") {
+		t.Errorf("error should say how to fix it: %v", err)
+	}
+}
+
+// A failed push must not leave the reader with URLs that 404, so the built-in
+// template has to say where the images actually are.
+func TestDefaultTemplateOnPublishFailure(t *testing.T) {
+	ctx := Context{
+		State:   StatePublishFailed,
+		Status:  "success",
+		Total:   4,
+		Failure: "remote hung up",
+		Run:     Run{Number: "7", URL: "https://example/run/7"},
+	}
+	body := render(t, DefaultTemplate(), ctx, Options{})
+	if !strings.Contains(body, "remote hung up") {
+		t.Errorf("body should carry the failure:\n%s", body)
 	}
 	if strings.Contains(body, "<img") {
-		t.Error("a failed publish rendered image tags")
+		t.Errorf("body should render no images:\n%s", body)
+	}
+}
+
+// The built-in template is a folded section per directory and nothing else: no
+// capture names, so it renders whatever the layout collected.
+func TestDefaultTemplateNeedsNoCaptures(t *testing.T) {
+	ctx := published(
+		image("desktop/a.png", nil),
+		image("mobile/b.png", nil),
+	)
+	body := render(t, DefaultTemplate(), ctx, Options{RowLabel: "file name"})
+	for _, want := range []string{"<b>desktop</b>", "<b>mobile</b>", "| file name | image |", "<details>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body is missing %q:\n%s", want, body)
+		}
 	}
 }
 
 // The status line reports the job that produced the images, which is not the
-// same thing as whether the images were published.
-func TestStatusIsIndependentOfState(t *testing.T) {
-	ctx := published(1)
+// same thing as whether they were published.
+func TestDefaultTemplateStatusIsTheJob(t *testing.T) {
+	ctx := published(image("desktop/a.png", nil))
 	ctx.Status = "failure"
-	body, _ := render(t, ctx, Options{})
-	if !strings.Contains(body, "failed") {
-		t.Error("a failing job rendered as passing")
+	body := render(t, DefaultTemplate(), ctx, Options{})
+	if !strings.Contains(body, "❌ failed") {
+		t.Errorf("want the failed marker:\n%s", body)
 	}
 	if !strings.Contains(body, "<img") {
-		t.Error("a failing job should still show its captures")
-	}
-}
-
-func TestMissingCellRendersAsDash(t *testing.T) {
-	ctx := published(1)
-	ctx.Groups[0].Rows[0].Cells = map[string]string{"light": "https://example.test/light.png"}
-	body, _ := render(t, ctx, Options{ImageWidth: 360})
-	if !strings.Contains(body, "| — |") {
-		t.Errorf("a missing cell did not render as an em dash:\n%s", body)
-	}
-}
-
-func TestImageWidthZeroOmitsTheAttribute(t *testing.T) {
-	body, _ := render(t, published(1), Options{ImageWidth: 0})
-	if strings.Contains(body, "width=") {
-		t.Error("image-width 0 still emitted a width attribute")
-	}
-}
-
-// GitHub rejects a body over 65536 characters outright, so the renderer has to
-// shed rows rather than let the API call fail.
-func TestRenderShedsRowsToFitTheLimit(t *testing.T) {
-	ctx := published(400)
-	body, out := render(t, ctx, Options{ImageWidth: 360, Limit: 8000})
-	if len(body) > 8000 {
-		t.Fatalf("body is %d characters, limit was 8000", len(body))
-	}
-	if out.Omitted == 0 {
-		t.Error("rows were dropped but Omitted stayed at zero")
-	}
-	if out.Total >= ctx.Total {
-		t.Error("Total was not adjusted to the rows that survived")
-	}
-	if !strings.Contains(body, "dropped") {
-		t.Error("the body does not admit that rows are missing")
-	}
-}
-
-func TestRenderUnderTheLimitDropsNothing(t *testing.T) {
-	ctx := published(3)
-	_, out := render(t, ctx, Options{ImageWidth: 360, Limit: 65536})
-	if out.Omitted != 0 {
-		t.Errorf("Omitted = %d, want 0", out.Omitted)
-	}
-	if out.Total != ctx.Total {
-		t.Errorf("Total = %d, want %d", out.Total, ctx.Total)
-	}
-}
-
-// A template that cannot fit even with every row gone is a template problem,
-// and reporting it beats posting a truncated comment.
-func TestRenderFailsWhenTheTemplateItselfIsTooLong(t *testing.T) {
-	r, err := New("big", strings.Repeat("x", 200), Options{Limit: 100})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if _, _, err := r.Render(published(1)); err == nil {
-		t.Fatal("want an error when nothing can be dropped")
-	}
-}
-
-func TestCustomTemplateSeesTheContext(t *testing.T) {
-	r, err := New("custom", `{{ .Pull.Number }}:{{ len .Groups }}:{{ range .Groups }}{{ table . }}{{ end }}`, Options{RowLabel: "screen"})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	body, _, err := r.Render(published(2))
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	if !strings.HasPrefix(body, "42:1:") {
-		t.Errorf("context fields did not reach the template: %q", body)
-	}
-	if !strings.Contains(body, "| screen | light | dark |") {
-		t.Errorf("the table helper did not honour row-label:\n%s", body)
-	}
-}
-
-func TestNewRejectsABrokenTemplate(t *testing.T) {
-	if _, err := New("broken", "{{ .Unclosed", Options{}); err == nil {
-		t.Fatal("want a parse error")
+		t.Errorf("images were published and should render:\n%s", body)
 	}
 }

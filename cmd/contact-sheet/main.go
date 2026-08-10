@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"regexp"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,20 +32,17 @@ import (
 const commentLimit = 65536
 
 type config struct {
-	path         string
-	layout       string
-	groupOrder   string
-	colOrder     string
-	colDefault   string
-	templateFile string
-	commentID    string
-	title        string
-	status       string
-	refNamespace string
-	rowLabel     string
-	imageWidth   int
-	pullNumber   int
-	dryRun       bool
+	path          string
+	layout        string
+	templateFiles string
+	commentID     string
+	title         string
+	status        string
+	refNamespace  string
+	rowLabel      string
+	imageWidth    int
+	pullNumber    int
+	dryRun        bool
 }
 
 func main() {
@@ -69,22 +66,21 @@ func run(ctx context.Context) error {
 		return errors.New("--path is required")
 	}
 
-	layout, err := regexp.Compile(cfg.layout)
-	if err != nil {
-		return fmt.Errorf("--layout is not a valid expression: %w", err)
-	}
-
-	collected, err := collect.Collect(collect.Options{
-		Root:       cfg.path,
-		Layout:     layout,
-		GroupOrder: splitList(cfg.groupOrder),
-		ColOrder:   splitList(cfg.colOrder),
-		ColDefault: cfg.colDefault,
-	})
+	layout, err := collect.Compile(cfg.layout)
 	if err != nil {
 		return err
 	}
-	logf("collected %d images in %d groups", collected.Total, len(collected.Groups))
+
+	templates, err := templatesOf(cfg)
+	if err != nil {
+		return err
+	}
+
+	collected, err := collect.Collect(collect.Options{Root: cfg.path, Layout: layout})
+	if err != nil {
+		return err
+	}
+	logf("collected %d images for %d template(s)", collected.Total, len(templates))
 
 	repository := env("GITHUB_REPOSITORY", "")
 	sha := env("GITHUB_SHA", strings.Repeat("0", 40))
@@ -145,9 +141,8 @@ func run(ctx context.Context) error {
 			Attempt: runAttempt,
 			URL:     fmt.Sprintf("%s/%s/actions/runs/%s", serverURL, repository, runID),
 		},
-		Pull:    render.Pull{Number: pull.Number, URL: pull.HTMLURL},
-		Columns: columnsOf(collected),
-		Total:   collected.Total,
+		Pull:  render.Pull{Number: pull.Number, URL: pull.HTMLURL},
+		Total: collected.Total,
 	}
 
 	if collected.Total > 0 {
@@ -190,55 +185,100 @@ func run(ctx context.Context) error {
 	}
 
 	if view.State == render.StatePublished {
-		view.Groups = withURLs(collected, rawURL, repository, view.Commit)
+		view.Images = withURLs(collected.Images, rawURL, repository, view.Commit)
 	}
 
-	marker := "<!-- " + cfg.commentID + " -->"
-	body, rendered, err := renderBody(cfg, view, len(marker)+1)
-	if err != nil {
-		return err
+	// One template, one comment. The template author decides how many comments a
+	// run writes by how many files they list, which is why nothing here splits a
+	// body: a body over the limit is theirs to divide.
+	prefix := "<!-- " + cfg.commentID + ":"
+	var ids []string
+	keep := map[string]bool{}
+	for _, t := range templates {
+		marker := prefix + t.key + " -->"
+		keep[marker] = true
+
+		body, err := renderOne(cfg, t, view, len(marker)+1)
+		if err != nil {
+			return err
+		}
+		body = marker + "\n" + body
+
+		if cfg.dryRun {
+			fmt.Println(body)
+			continue
+		}
+		commentID, err := client.UpsertComment(ctx, pull.Number, marker, body)
+		if err != nil {
+			return err
+		}
+		ids = append(ids, strconv.FormatInt(commentID, 10))
+		logf("commented on #%d as %s (%d)", pull.Number, t.key, commentID)
 	}
-	body = marker + "\n" + body
 
 	if cfg.dryRun {
-		fmt.Println(body)
 		return nil
 	}
 
-	commentID, err := client.UpsertComment(ctx, pull.Number, marker, body)
-	if err != nil {
+	// a template dropped from the list leaves a comment showing an older run
+	if pruned, err := client.PruneComments(ctx, pull.Number, prefix, keep); err != nil {
 		return err
+	} else if pruned > 0 {
+		logf("deleted %d comment(s) from templates no longer listed", pruned)
 	}
-	logf("commented on #%d (%d)", pull.Number, commentID)
 
 	return writeOutputs(map[string]string{
-		"state":      string(rendered.State),
-		"total":      strconv.Itoa(rendered.Total),
-		"ref":        rendered.Ref,
-		"commit":     rendered.Commit,
-		"comment-id": strconv.FormatInt(commentID, 10),
-		"pull":       strconv.Itoa(pull.Number),
+		"state":    string(view.State),
+		"total":    strconv.Itoa(view.Total),
+		"ref":      view.Ref,
+		"commit":   view.Commit,
+		"comments": strings.Join(ids, ","),
+		"pull":     strconv.Itoa(pull.Number),
 	})
 }
 
-// renderBody parses the template -- the user's or the built-in one -- and
-// executes it. reserved is the room the marker takes out of the limit.
-func renderBody(cfg config, view render.Context, reserved int) (string, render.Context, error) {
-	name, text := "default", render.DefaultTemplate()
-	if cfg.templateFile != "" {
-		raw, err := os.ReadFile(cfg.templateFile)
-		if err != nil {
-			return "", view, fmt.Errorf("--template-file: %w", err)
-		}
-		name, text = cfg.templateFile, string(raw)
+// namedTemplate is one template file and the key that identifies the comment it
+// writes. The key comes from the file name so that reordering the list does not
+// shuffle which comment gets rewritten.
+type namedTemplate struct {
+	key  string
+	name string
+	text string
+}
+
+func templatesOf(cfg config) ([]namedTemplate, error) {
+	files := splitList(cfg.templateFiles)
+	if len(files) == 0 {
+		return []namedTemplate{{key: "default", name: "default", text: render.DefaultTemplate()}}, nil
 	}
-	renderer, err := render.New(name, text, render.Options{
+	out := make([]namedTemplate, 0, len(files))
+	seen := map[string]bool{}
+	for _, file := range files {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("--template-files: %w", err)
+		}
+		key := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+		if seen[key] {
+			return nil, fmt.Errorf(
+				"--template-files: two files are both named %q, so one comment would overwrite the other", key)
+		}
+		seen[key] = true
+		out = append(out, namedTemplate{key: key, name: file, text: string(raw)})
+	}
+	return out, nil
+}
+
+// renderOne executes one template. reserved is the room its marker takes out of
+// the limit.
+func renderOne(cfg config, t namedTemplate, view render.Context, reserved int) (string, error) {
+	renderer, err := render.New(t.name, t.text, render.Options{
 		ImageWidth: cfg.imageWidth,
 		RowLabel:   cfg.rowLabel,
 		Limit:      commentLimit - reserved,
 	})
 	if err != nil {
-		return "", view, err
+		return "", err
 	}
 	return renderer.Render(view)
 }
@@ -252,27 +292,12 @@ func resolvePull(ctx context.Context, client *ghapi.Client, number int, sha stri
 	return client.PullForCommit(ctx, sha)
 }
 
-func columnsOf(c collect.Result) []string {
-	if len(c.Groups) == 0 {
-		return nil
-	}
-	return c.Groups[0].Columns
-}
-
-// withURLs rewrites each cell from a repository-relative path to the raw URL of
-// that path in the commit that now holds it.
-func withURLs(c collect.Result, rawURL, repository, commit string) []sheet.Group {
-	out := make([]sheet.Group, 0, len(c.Groups))
-	for _, group := range c.Groups {
-		rows := make([]sheet.Row, 0, len(group.Rows))
-		for _, row := range group.Rows {
-			cells := make(map[string]string, len(row.Cells))
-			for column, path := range row.Cells {
-				cells[column] = fmt.Sprintf("%s/%s/%s/%s", strings.TrimSuffix(rawURL, "/"), repository, commit, path)
-			}
-			rows = append(rows, sheet.Row{Name: row.Name, Cells: cells})
-		}
-		out = append(out, sheet.Group{Name: group.Name, Columns: group.Columns, Rows: rows})
+// withURLs fills in each image's URL now that a commit holds it.
+func withURLs(images []sheet.Image, rawURL, repository, commit string) []sheet.Image {
+	out := make([]sheet.Image, 0, len(images))
+	for _, image := range images {
+		image.URL = fmt.Sprintf("%s/%s/%s/%s", strings.TrimSuffix(rawURL, "/"), repository, commit, image.Path)
+		out = append(out, image)
 	}
 	return out
 }

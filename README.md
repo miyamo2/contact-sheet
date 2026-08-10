@@ -17,8 +17,6 @@ Add the step after whatever produces the images:
   with:
     path: e2e/captures
     status: ${{ steps.capture.outcome }}
-    group-order: desktop-chromium,mobile-chromium
-    row-label: screen
 ```
 
 Then grant the two permissions the job needs:
@@ -37,40 +35,35 @@ be opened during a review.
 
 ## What the comment looks like
 
-One heading, one status line, and a `<details>` block per group. This is the
-body the workflow above posts, trimmed to one group and two rows, with the
-image URLs shortened to fit the page:
+One heading, one status line, and a folded section per directory. Nothing is
+configured above, so this is the whole default:
 
 ```markdown
-<!-- contact-sheet -->
+<!-- contact-sheet:default -->
 ### Contact Sheet
 
 ✅ succeeded · commit [`9f1c2ab`](https://github.com/miyamo2/blog/commit/9f1c2ab…) · [run #42](https://github.com/miyamo2/blog/actions/runs/12345678)
 
 <details>
-<summary><b>desktop-chromium</b> · 3 rows</summary>
+<summary><b>desktop-chromium</b> · 6 images</summary>
 
-| screen | light | dark |
-| --- | --- | --- |
-| `about` | <img src="https://raw.githubusercontent.com/miyamo2/blog/4c7e0d1…/desktop-chromium/about-light.png" width="360"> | <img src="…/desktop-chromium/about-dark.png" width="360"> |
-| `menu-modal` | <img src="…/desktop-chromium/menu-modal.png" width="360"> | — |
+| file name | image |
+| --- | --- |
+| `about-dark` | <img src="https://raw.githubusercontent.com/miyamo2/blog/4c7e0d1…/desktop-chromium/about-dark.png" width="360"> |
+| `about-light` | <img src="…/desktop-chromium/about-light.png" width="360"> |
 
 </details>
 
 <sub>Kept on `refs/contact-sheet/pr-7/12345678.1`, outside the default fetch refspec — no clone or pull carries these.</sub>
 ```
 
-Four things in there are worth knowing:
+Three things in there are worth knowing:
 
 | | |
 | --- | --- |
-| `<!-- contact-sheet -->` | the marker the next run looks for, which is how the comment is rewritten in place instead of a new one piling up per push |
+| `<!-- contact-sheet:default -->` | names the comment. The next run rewrites the comment carrying this marker instead of adding one, and `default` is the template that wrote it |
 | ✅ / ❌ | the `status` input, i.e. the job that produced the images — not whether publishing them worked |
 | `4c7e0d1…` in the URLs | the orphan commit holding the images, which is not the head commit `9f1c2ab` |
-| `—` | the row has no image for that column |
-
-Groups are collapsed so a run covering six viewports does not fill the page. A
-layout with no `group` capture produces one table and no `<details>` at all.
 
 The other two states are a single line. Publishing failed:
 
@@ -84,7 +77,9 @@ Nothing to show:
 No images under the configured path matched the layout — see [the logs](…).
 ```
 
-`contact-sheet --print-template` prints the template behind all three.
+`contact-sheet --print-template` prints the template behind all three. It is a
+starting point, not a constraint: the action does not know that a contact sheet
+is a table, and neither has your template to.
 
 ## Where the images go
 
@@ -161,50 +156,68 @@ a changed pixel. If you need a build to block on a visual change, use one of
 the services above; this puts images where a reviewer can see them and stops
 there.
 
-## Laying out your images
+## Choosing which files to collect
 
-One expression decides where every image lands. It is matched against each
-file's slash-separated path under `path`, and its named captures place the
-image:
+Every file that looks like an image — png, jpg, jpeg, gif, webp — is collected,
+and that is the whole of it unless you say otherwise. SVG is left out on
+purpose: GitHub's image proxy will not render one from a raw URL, so collecting
+them would put broken cells in the comment.
 
-| capture | |
+`layout` narrows that and annotates it. It is one expression, matched against
+each file's slash-separated path under `path`, and it does two things:
+
+| | |
 | --- | --- |
-| `group` | which table the image belongs to. Optional — without it you get one flat table |
-| `row` | which line of that table. **Required** |
-| `col` | which column of that line. Optional — a layout without it produces one unnamed column |
+| filters | a file it does not match is skipped, so a trace or a `.gitkeep` in the same directory is harmless |
+| annotates | its named captures land on the image, for your template to group and order by |
 
-The default handles a Playwright suite with one project per viewport and a
-light/dark sweep:
+The capture names are yours. The action reads none of them — there is no `row`,
+no `col`, no reserved word. A suite with one project per viewport and a
+light/dark sweep might write:
 
-```
-^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.(?:png|jpe?g|gif|webp)$
-```
-
-```
-captures/desktop-chromium/article-list-light.png   ->  desktop-chromium | article-list | light
-captures/desktop-chromium/article-list-dark.png    ->  desktop-chromium | article-list | dark
-captures/mobile-chromium/menu-modal.png            ->  mobile-chromium  | menu-modal   | light
+```yaml
+layout: '^(?:[^/]+/)?(?P<screen>.+?)(?:-(?P<theme>light|dark))?\.png$'
 ```
 
-Files that do not match are skipped, so a stray trace or `.gitkeep` in the same
-directory is harmless. Two files landing on the same group/row/column is an
-error rather than a silent drop.
+```
+captures/desktop-chromium/article-list-light.png  ->  screen=article-list  theme=light   dir=desktop-chromium
+captures/mobile-chromium/menu-modal.png           ->  screen=menu-modal    theme=""      dir=mobile-chromium
+```
 
-Go's regexp syntax uses `(?P<name>...)`, not `(?<name>...)`.
+and a template then groups by `dir` and columns by `theme`. Go's regexp syntax
+uses `(?P<name>...)`, not `(?<name>...)`.
 
-## Customising the comment
+## Writing the comment
 
 The body is a [text/template](https://pkg.go.dev/text/template). Point
-`template-file` at your own to replace it:
+`template-files` at your own to replace the built-in one:
 
 ```yaml
 - uses: miyamo2/contact-sheet@v1
   with:
     path: e2e/captures
-    template-file: .github/contact-sheet.tmpl
+    template-files: .github/contact-sheet.tmpl
 ```
 
-`contact-sheet --print-template` prints the built-in one as a starting point.
+### One template, one comment
+
+`template-files` takes a comma-separated list, and each file writes its own
+comment, in the order given. That is how you decide how many comments a run
+leaves:
+
+```yaml
+    template-files: .github/summary.tmpl,.github/desktop.tmpl,.github/mobile.tmpl
+```
+
+Each comment is marked `<!-- <comment-id>:<file name without extension> -->`, so
+renaming a template starts a new comment and reordering the list does not
+shuffle which comment gets rewritten. Two files with the same base name are an
+error rather than a comment that overwrites another. Drop a template from the
+list and its comment is deleted on the next run.
+
+A body over GitHub's 65536-character limit is an error naming the template that
+overflowed. Nothing is trimmed to fit — the action cannot know which images you
+wanted — and the fix is another template.
 
 ### The context
 
@@ -217,23 +230,35 @@ SHA         ShortSHA  CommitURL
 Run         .ID  .Number  .Attempt  .URL
 Pull        .Number  .URL
 Ref         Commit          // only when State is "published"
-Columns     []string
-Groups      []Group         // .Name  .Columns  .Rows
-                            //   Row: .Name  .Cells  .Cell "light"
-Total       Omitted  Failure
+Images      []Image         // .Path .Dir .Name .Ext .URL .Match
+Total
+Failure
 ```
 
 `.Succeeded` and `.Published` are shorthands for the two comparisons templates
-make most.
+make most. An image's `.Match` holds the layout's captures, and `field img "x"`
+reads either a built-in field or a capture by the same name.
 
 ### Helpers
 
 | | |
 | --- | --- |
-| `table .` | renders a Group as a Markdown table, honouring `row-label` and `image-width` |
-| `img url` | one `<img>`, or an em dash when the URL is empty |
+| `groupBy images "dir"` | splits into `.Key` / `.Images` buckets by any field or capture |
+| `filter images "theme" "dark"` | keeps the images whose field equals a value |
+| `values images "theme"` | the distinct values of a field, in first-appearance order |
+| `orderBy names "a,b"` | sorts, putting the listed names first |
+| `table images row col colOrder colDefault` | a Markdown table: one row per `row` value, one column per `col` value. An empty `col` puts everything in one column headed `colDefault` |
+| `img image` | one `<img>`, or an em dash when there is no URL |
 | `details summary body` | a collapsed `<details>` block |
-| `join list sep` | `strings.Join` |
+| `field` · `split` · `join` | one field of one image; string to list; list to string |
+
+The built-in template uses four of them and nothing else:
+
+```gotemplate
+{{ range groupBy .Images "dir" }}
+{{ details .Key (table .Images "name" "" "" "image") }}
+{{ end }}
+```
 
 ### Every template has to handle three states
 
@@ -242,7 +267,7 @@ that renders images unconditionally will show broken URLs when the push fails:
 
 ```gotemplate
 {{ if eq .State "published" }}
-{{ range .Groups }}{{ details .Name (table .) }}{{ end }}
+{{ range groupBy .Images "dir" }}{{ details .Key (table .Images "name" "" "" "image") }}{{ end }}
 {{- else if eq .State "publish-failed" }}
 {{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
 {{- else }}
@@ -250,15 +275,11 @@ No images were produced by this run.
 {{- end }}
 ```
 
-`Omitted` is non-zero when rows had to be dropped to fit GitHub's 65536-character
-comment limit; say so if it is, or reviewers will think those screens were never
-captured.
-
 ## Checking a template without a token
 
 ```console
 $ go install github.com/miyamo2/contact-sheet/cmd/contact-sheet@latest
-$ contact-sheet --dry-run --path e2e/captures --template-file .github/contact-sheet.tmpl
+$ contact-sheet --dry-run --path e2e/captures --template-files .github/contact-sheet.tmpl
 ```
 
 `--dry-run` resolves no pull request, pushes nothing and prints the body it
@@ -269,16 +290,13 @@ would have posted, so a template can be iterated on locally in seconds.
 | input | default | |
 | --- | --- | --- |
 | `path` | — | directory of images. **Required** |
-| `layout` | see above | expression placing each image |
-| `group-order` | `` | comma-separated group names to sort first |
-| `col-order` | `light,dark` | comma-separated column names to sort first |
-| `col-default` | first of `col-order` | column for images with no `col` capture, when the layout has one |
-| `template-file` | built-in | text/template for the body |
+| `layout` | `` | expression filtering the files and naming their captures; empty collects every image |
+| `template-files` | built-in | comma-separated text/template files, one comment each |
 | `title` | `Contact Sheet` | heading passed to the template |
 | `status` | `success` | outcome of the job that produced the images |
-| `comment-id` | `contact-sheet` | identifies the comment to rewrite |
+| `comment-id` | `contact-sheet` | namespaces the comments this action owns |
 | `ref-namespace` | `refs/contact-sheet` | must be outside `refs/heads/*` |
-| `row-label` | `name` | header of each table's first column |
+| `row-label` | `file name` | header of the first column of a `table` |
 | `image-width` | `360` | width on each `<img>`; `0` omits it |
 | `pull-number` | resolved from the commit | pull request to comment on |
 | `dry-run` | `false` | push nothing, comment nothing |
@@ -286,7 +304,7 @@ would have posted, so a template can be iterated on locally in seconds.
 
 ## Outputs
 
-`state`, `total`, `ref`, `commit`, `comment-id`, `pull`.
+`state`, `total`, `ref`, `commit`, `comments`, `pull`.
 
 ## License
 

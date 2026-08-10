@@ -16,8 +16,6 @@ CIが作った画像を、プルリクエストのコメントにサムネイル
   with:
     path: e2e/captures
     status: ${{ steps.capture.outcome }}
-    group-order: desktop-chromium,mobile-chromium
-    row-label: screen
 ```
 
 ジョブに要る権限は2つ。
@@ -32,37 +30,34 @@ permissions:
 
 ## コメントはこう見える
 
-見出しが1行、状態が1行、あとはグループごとの折りたたみブロックが続く。冒頭のワークフローが投稿する本文を、1グループ2行に削り、画像URLを短く省いて示す:
+見出しが1行、状態が1行、あとはディレクトリごとの折りたたみセクション。上の例では何も設定していないので、これが既定の全部だ:
 
 ```markdown
-<!-- contact-sheet -->
+<!-- contact-sheet:default -->
 ### Contact Sheet
 
 ✅ succeeded · commit [`9f1c2ab`](https://github.com/miyamo2/blog/commit/9f1c2ab…) · [run #42](https://github.com/miyamo2/blog/actions/runs/12345678)
 
 <details>
-<summary><b>desktop-chromium</b> · 3 rows</summary>
+<summary><b>desktop-chromium</b> · 6 images</summary>
 
-| screen | light | dark |
-| --- | --- | --- |
-| `about` | <img src="https://raw.githubusercontent.com/miyamo2/blog/4c7e0d1…/desktop-chromium/about-light.png" width="360"> | <img src="…/desktop-chromium/about-dark.png" width="360"> |
-| `menu-modal` | <img src="…/desktop-chromium/menu-modal.png" width="360"> | — |
+| file name | image |
+| --- | --- |
+| `about-dark` | <img src="https://raw.githubusercontent.com/miyamo2/blog/4c7e0d1…/desktop-chromium/about-dark.png" width="360"> |
+| `about-light` | <img src="…/desktop-chromium/about-light.png" width="360"> |
 
 </details>
 
 <sub>Kept on `refs/contact-sheet/pr-7/12345678.1`, outside the default fetch refspec — no clone or pull carries these.</sub>
 ```
 
-このうち4箇所は知っておく価値がある:
+このうち3箇所は知っておく価値がある:
 
 | | |
 | --- | --- |
-| `<!-- contact-sheet -->` | 次の実行が探す目印。これがあるからコメントは積み上がらず、同じものが書き換わる |
+| `<!-- contact-sheet:default -->` | コメントの名前。次の実行はこの目印を持つコメントを書き換えるので、数が増えない。`default` は書いたテンプレートの名前 |
 | ✅ / ❌ | `status` 入力、つまり画像を作ったジョブの結果。公開できたかどうかではない |
 | URLの `4c7e0d1…` | 画像を保持するorphan commit。headコミット `9f1c2ab` とは別物 |
-| `—` | その行にその列の画像がない |
-
-グループは折りたたんであるので、ビューポートを6つ回した実行でもページが埋まらない。`group` キャプチャのないレイアウトなら、テーブルは1つになり、折りたたみも付かない。
 
 残り2つの状態は1行で終わる。プッシュに失敗したとき:
 
@@ -76,7 +71,7 @@ permissions:
 No images under the configured path matched the layout — see [the logs](…).
 ```
 
-3つとも同じテンプレートから出ている。中身は `contact-sheet --print-template` で読める。
+3つとも同じテンプレートから出ていて、中身は `contact-sheet --print-template` で読める。ただしこれは出発点であって制約ではない。コンタクトシートが表であることをアクションは知らないので、あなたのテンプレートも知らなくていい。
 
 ## 画像はどこに置かれるか
 
@@ -125,44 +120,52 @@ $ git push origin :refs/contact-sheet/pr-42/12345678.1
 
 **差分も取らない。** ベースラインも承認フローもなく、ピクセルが変わってもCIは落ちない。見た目の変化でビルドを止めたいなら上のサービスを使うことになる。こちらは画像をレビュアーの見える場所に置くところまでで終わる。
 
-## 画像の並べ方
+## どのファイルを集めるか
 
-1つの正規表現が全画像の行き先を決める。`path` 以下にある各ファイルのスラッシュ区切りのパスに対して照合し、名前付きキャプチャが置き場所になる:
+画像らしい拡張子のファイル — png・jpg・jpeg・gif・webp — は全部集める。何も指定しなければそれで終わりだ。SVGは意図的に外してある。GitHubの画像プロキシがraw URLのSVGを描画しないので、集めても壊れたセルがコメントに並ぶだけになる。
 
-| キャプチャ | |
+`layout` はこれを絞り、同時に注釈を付ける。式は1つで、`path` 以下にある各ファイルのスラッシュ区切りのパスに照合し、2つの働きをする:
+
+| | |
 | --- | --- |
-| `group` | どのテーブルに入るか。省略可 — 無ければテーブルは1つになる |
-| `row` | そのテーブルの何行目か。**必須** |
-| `col` | その行の何列目か。省略可 — これがないレイアウトでは、列は1つになり名前も付かない |
+| 絞る | 照合しないファイルは飛ばす。同じディレクトリにtraceや `.gitkeep` があっても害はない |
+| 注釈する | 名前付きキャプチャが画像に付く。テンプレートはそれでグループ分けや並べ替えをする |
 
-既定値は、ビューポートごとにプロジェクトを分けてlightとdarkを撮るPlaywrightのスイートに合わせてある:
+キャプチャ名は書く人のものだ。アクションはどれも読まないし、`row` も `col` も予約されていない。ビューポートごとにプロジェクトを分けてlightとdarkを撮るスイートなら、たとえばこう書ける:
 
-```
-^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.(?:png|jpe?g|gif|webp)$
-```
-
-```
-captures/desktop-chromium/article-list-light.png   ->  desktop-chromium | article-list | light
-captures/desktop-chromium/article-list-dark.png    ->  desktop-chromium | article-list | dark
-captures/mobile-chromium/menu-modal.png            ->  mobile-chromium  | menu-modal   | light
+```yaml
+layout: '^(?:[^/]+/)?(?P<screen>.+?)(?:-(?P<theme>light|dark))?\.png$'
 ```
 
-照合しないファイルは飛ばすので、同じディレクトリにtraceや `.gitkeep` が転がっていても害はない。group・row・列の組が重なったときは、黙って片方を捨てるのではなくエラーにする。
+```
+captures/desktop-chromium/article-list-light.png  ->  screen=article-list  theme=light   dir=desktop-chromium
+captures/mobile-chromium/menu-modal.png           ->  screen=menu-modal    theme=""      dir=mobile-chromium
+```
 
-Goの正規表現は `(?P<name>...)` と書く。`(?<name>...)` ではない。
+あとはテンプレートが `dir` でグループを作り、`theme` で列を作ればいい。Goの正規表現は `(?P<name>...)` と書く。`(?<name>...)` ではない。
 
-## コメントを自分のものに差し替える
+## コメントを書く
 
-本文は [text/template](https://pkg.go.dev/text/template) で書かれている。`template-file` に自分のファイルを渡せば置き換わる:
+本文は [text/template](https://pkg.go.dev/text/template) だ。`template-files` に自分のファイルを渡せば、組み込みのものと置き換わる:
 
 ```yaml
 - uses: miyamo2/contact-sheet@v1
   with:
     path: e2e/captures
-    template-file: .github/contact-sheet.tmpl
+    template-files: .github/contact-sheet.tmpl
 ```
 
-`contact-sheet --print-template` が組み込みのテンプレートを出力するので、それを下敷きにするとよい。
+### テンプレート1枚がコメント1つ
+
+`template-files` はカンマ区切りのリストを取り、各ファイルが並び順どおりに自分のコメントを書く。1回の実行が残すコメントの数は、これで決まる:
+
+```yaml
+    template-files: .github/summary.tmpl,.github/desktop.tmpl,.github/mobile.tmpl
+```
+
+各コメントには `<!-- <comment-id>:<拡張子を除いたファイル名> -->` が付く。テンプレートを改名すれば新しいコメントが始まり、リストを並べ替えても書き換え先は入れ替わらない。ベース名が同じファイルが2つあると、片方が他方を上書きする代わりにエラーになる。リストから外したテンプレートのコメントは、次の実行で削除される。
+
+GitHubの65536文字を超えた本文は、どのテンプレートが溢れたかを名指しするエラーになる。収めるための切り捨てはしない。どの画像が要るのかをアクションは知らないからで、直し方はテンプレートをもう1枚足すことだ。
 
 ### テンプレートに渡る値
 
@@ -175,22 +178,33 @@ SHA         ShortSHA  CommitURL
 Run         .ID  .Number  .Attempt  .URL
 Pull        .Number  .URL
 Ref         Commit          // State が published のときだけ
-Columns     []string
-Groups      []Group         // .Name  .Columns  .Rows
-                            //   Row: .Name  .Cells  .Cell "light"
-Total       Omitted  Failure
+Images      []Image         // .Path .Dir .Name .Ext .URL .Match
+Total
+Failure
 ```
 
-`.Succeeded` と `.Published` は、テンプレートが最もよく書く2つの比較の短縮形だ。
+`.Succeeded` と `.Published` は、テンプレートが最もよく書く2つの比較の短縮形だ。画像の `.Match` にはlayoutのキャプチャが入っていて、`field img "x"` は組み込みのフィールドとキャプチャを同じ書き方で読む。
 
 ### ヘルパー
 
 | | |
 | --- | --- |
-| `table .` | Group を Markdown のテーブルにする。`row-label` と `image-width` を反映する |
-| `img url` | `<img>` を1つ。URLが空ならem dashを出す |
+| `groupBy images "dir"` | 任意のフィールドやキャプチャで `.Key` / `.Images` のバケットに分ける |
+| `filter images "theme" "dark"` | フィールドが値に一致する画像だけ残す |
+| `values images "theme"` | フィールドの相異なる値を、最初に現れた順で返す |
+| `orderBy names "a,b"` | 並べ替える。列挙した名前が先に来る |
+| `table images row col colOrder colDefault` | Markdownのテーブル。`row` の値ごとに1行、`col` の値ごとに1列。`col` が空なら全部が1列に入り、その列の見出しが `colDefault` になる |
+| `img image` | `<img>` を1つ。URLがなければem dash |
 | `details summary body` | 折りたたんだ `<details>` |
-| `join list sep` | `strings.Join` |
+| `field` · `split` · `join` | 画像の1フィールド／文字列をリストへ／リストを文字列へ |
+
+組み込みのテンプレートが使うのは、このうち4つだけだ:
+
+```gotemplate
+{{ range groupBy .Images "dir" }}
+{{ details .Key (table .Images "name" "" "" "image") }}
+{{ end }}
+```
 
 ### 3つの状態を必ず書き分ける
 
@@ -198,7 +212,7 @@ Total       Omitted  Failure
 
 ```gotemplate
 {{ if eq .State "published" }}
-{{ range .Groups }}{{ details .Name (table .) }}{{ end }}
+{{ range groupBy .Images "dir" }}{{ details .Key (table .Images "name" "" "" "image") }}{{ end }}
 {{- else if eq .State "publish-failed" }}
 {{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
 {{- else }}
@@ -206,13 +220,11 @@ No images were produced by this run.
 {{- end }}
 ```
 
-`Omitted` には、GitHubの65536文字制限に収めるために落とした行数が入る。ゼロでないならそう書いておく。書かないと、レビュアーはその画面が最初から撮られていないと思う。
-
 ## トークンなしでテンプレートを試す
 
 ```console
 $ go install github.com/miyamo2/contact-sheet/cmd/contact-sheet@latest
-$ contact-sheet --dry-run --path e2e/captures --template-file .github/contact-sheet.tmpl
+$ contact-sheet --dry-run --path e2e/captures --template-files .github/contact-sheet.tmpl
 ```
 
 `--dry-run` はプルリクエストを解決せず、何もプッシュせず、投稿するはずだった本文を出力する。テンプレートの調整を手元で数秒ずつ回せる。
@@ -222,16 +234,13 @@ $ contact-sheet --dry-run --path e2e/captures --template-file .github/contact-sh
 | 入力 | 既定値 | |
 | --- | --- | --- |
 | `path` | — | 画像の入ったディレクトリ。**必須** |
-| `layout` | 上記 | 各画像の置き場所を決める正規表現 |
-| `group-order` | `` | 先に並べるグループ名。カンマ区切り |
-| `col-order` | `light,dark` | 先に並べる列名。カンマ区切り |
-| `col-default` | `col-order` の先頭 | `col` キャプチャがない画像の列。レイアウトに `col` があるときだけ効く |
-| `template-file` | 組み込み | 本文の text/template |
+| `layout` | `` | ファイルを絞り、キャプチャに名前を付ける式。空なら全画像を集める |
+| `template-files` | 組み込み | カンマ区切りのtext/templateファイル。1枚がコメント1つ |
 | `title` | `Contact Sheet` | テンプレートに渡す見出し |
 | `status` | `success` | 画像を作ったジョブの結果 |
-| `comment-id` | `contact-sheet` | 書き換える対象のコメントを特定する |
+| `comment-id` | `contact-sheet` | このアクションが持つコメントの名前空間 |
 | `ref-namespace` | `refs/contact-sheet` | `refs/heads/*` の外である必要がある |
-| `row-label` | `name` | 各テーブルの1列目の見出し |
+| `row-label` | `file name` | `table` の1列目の見出し |
 | `image-width` | `360` | 各 `<img>` の幅。`0` で省略 |
 | `pull-number` | コミットから解決 | コメントするプルリクエスト |
 | `dry-run` | `false` | プッシュもコメントもしない |
@@ -239,7 +248,7 @@ $ contact-sheet --dry-run --path e2e/captures --template-file .github/contact-sh
 
 ## 出力
 
-`state`、`total`、`ref`、`commit`、`comment-id`、`pull`。
+`state`、`total`、`ref`、`commit`、`comments`、`pull`。
 
 ## ライセンス
 

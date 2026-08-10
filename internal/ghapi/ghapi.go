@@ -128,23 +128,33 @@ type comment struct {
 	Body string `json:"body"`
 }
 
-// UpsertComment rewrites the comment whose body starts with marker, or posts a
-// new one. Returns the comment's id.
-func (c *Client) UpsertComment(ctx context.Context, pull int, marker, body string) (int64, error) {
+// listComments pages through one pull request's issue comments.
+func (c *Client) listComments(ctx context.Context, pull int) ([]comment, error) {
+	var out []comment
 	for page := 1; ; page++ {
 		var comments []comment
 		path := fmt.Sprintf("/repos/%s/issues/%d/comments?per_page=100&page=%d", c.Repository, pull, page)
 		if err := c.do(ctx, http.MethodGet, path, nil, &comments); err != nil {
-			return 0, err
+			return nil, err
 		}
-		for _, existing := range comments {
-			if strings.HasPrefix(existing.Body, marker) {
-				path := "/repos/" + c.Repository + "/issues/comments/" + strconv.FormatInt(existing.ID, 10)
-				return existing.ID, c.do(ctx, http.MethodPatch, path, map[string]string{"body": body}, nil)
-			}
-		}
+		out = append(out, comments...)
 		if len(comments) < 100 {
-			break
+			return out, nil
+		}
+	}
+}
+
+// UpsertComment rewrites the comment whose body starts with marker, or posts a
+// new one. Returns the comment's id.
+func (c *Client) UpsertComment(ctx context.Context, pull int, marker, body string) (int64, error) {
+	comments, err := c.listComments(ctx, pull)
+	if err != nil {
+		return 0, err
+	}
+	for _, existing := range comments {
+		if strings.HasPrefix(existing.Body, marker) {
+			path := "/repos/" + c.Repository + "/issues/comments/" + strconv.FormatInt(existing.ID, 10)
+			return existing.ID, c.do(ctx, http.MethodPatch, path, map[string]string{"body": body}, nil)
 		}
 	}
 	var created comment
@@ -153,4 +163,33 @@ func (c *Client) UpsertComment(ctx context.Context, pull int, marker, body strin
 		return 0, err
 	}
 	return created.ID, nil
+}
+
+// PruneComments deletes the comments this action wrote under prefix whose
+// marker is not in keep. Dropping a template from the list would otherwise
+// leave its comment behind, showing a previous run's images forever.
+func (c *Client) PruneComments(ctx context.Context, pull int, prefix string, keep map[string]bool) (int, error) {
+	comments, err := c.listComments(ctx, pull)
+	if err != nil {
+		return 0, err
+	}
+	deleted := 0
+	for _, existing := range comments {
+		if !strings.HasPrefix(existing.Body, prefix) {
+			continue
+		}
+		marker := existing.Body
+		if end := strings.IndexByte(marker, '\n'); end >= 0 {
+			marker = marker[:end]
+		}
+		if keep[strings.TrimSpace(marker)] {
+			continue
+		}
+		path := "/repos/" + c.Repository + "/issues/comments/" + strconv.FormatInt(existing.ID, 10)
+		if err := c.do(ctx, http.MethodDelete, path, nil, nil); err != nil {
+			return deleted, err
+		}
+		deleted++
+	}
+	return deleted, nil
 }
