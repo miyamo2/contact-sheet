@@ -145,7 +145,7 @@ are the closest actions; both offer the middle two rows, defaulting to a branch.
 Two more differences decide whether this is the right tool:
 
 **It does not take the screenshots.** Those actions capture URLs or HTML files
-for you, which is less setup right up until your suite already has a capture
+for you, which is less setup right up until your suite already has a screenshot
 step with its own fixtures, auth and viewports. Contact Sheet starts
 from a directory that already exists, so Playwright, Cypress, Storybook or a
 plotting script all feed it the same way — and the grouping follows your file
@@ -169,11 +169,15 @@ each file's slash-separated path under `path`, and it does two things:
 | | |
 | --- | --- |
 | filters | a file it does not match is skipped, so a trace or a `.gitkeep` in the same directory is harmless |
-| annotates | its named captures land on the image, for your template to group and order by |
+| annotates | it lifts pieces of the path out by name and attaches them to the image, for your template to group and order by |
 
-The capture names are yours. The action reads none of them — there is no `row`,
-no `col`, no reserved word. A suite with one project per viewport and a
-light/dark sweep might write:
+The lifting is done by Go's named capture groups, `(?P<name>...)`, called
+captures from here on — not the screenshots, which this README also calls
+captures where they sit in `e2e/captures`.
+
+The names are yours. The action reads none of them — there is no `row`, no
+`col`, no reserved word. A suite with one project per viewport and a light/dark
+sweep might write:
 
 ```yaml
 layout: '^(?:[^/]+/)?(?P<screen>.+?)(?:-(?P<theme>light|dark))?\.png$'
@@ -236,7 +240,7 @@ repository's [`templates/`](./templates) can be used without copying them:
 | [`gallery.tmpl`](./templates/gallery.tmpl) | images inline, side by side, one folded section per directory. No table, no captures needed |
 | [`flat.tmpl`](./templates/flat.tmpl) | one table of every image, rows labelled by path. Pair with `row-label: path` |
 | [`summary.tmpl`](./templates/summary.tmpl) | counts and links, no images. Small enough to sit at the top of a long pull request |
-| [`themes.tmpl`](./templates/themes.tmpl) | a row per screen and a column per theme, from a `layout` naming those two captures |
+| [`themes.tmpl`](./templates/themes.tmpl) | a row per screen and a column per theme, from a `layout` capturing `screen` and `theme` |
 
 Pin the URL to a tag rather than a branch, the same as the `uses:` line above:
 the templates are versioned with the action, and a template ahead of your binary
