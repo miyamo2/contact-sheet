@@ -34,10 +34,13 @@ on:
 permissions: {}
 
 # a second /dogfooding while the first is still running would have two runs
-# rewriting the same comments
+# rewriting the same comments, so the second waits rather than starting. It is
+# not cancelled either: a run that has already pushed its ref and written some
+# of its comments is left to finish the rest. GitHub keeps one run waiting per
+# group, so a third command supersedes the one still queued
 concurrency:
   group: dogfooding-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   # Nothing the gate reads comes from the pull request: the roles come from the
