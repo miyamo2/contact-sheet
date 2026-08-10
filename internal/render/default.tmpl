@@ -1,0 +1,12 @@
+### {{ .Title }}
+
+{{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · commit [`{{ .ShortSHA }}`]({{ .CommitURL }}) · [run #{{ .Run.Number }}]({{ .Run.URL }})
+{{ if eq .State "published" }}
+{{ range groupBy .Images "dir" }}{{ if .Key }}{{ details (printf "<b>%s</b> · %d images" .Key (len .Images)) (table .Images "name" "" "" "image") }}{{ else }}{{ table .Images "name" "" "" "image" }}{{ end }}
+{{ end }}
+<sub>Kept on `{{ .Ref }}`, outside the default fetch refspec — no clone or pull carries these.</sub>
+{{- else if eq .State "publish-failed" -}}
+{{ .Total }} images were collected, but pushing them failed (`{{ .Failure }}`). They are in the artifacts on [the run]({{ .Run.URL }}).
+{{- else -}}
+No images under the configured path matched the layout — see [the logs]({{ .Run.URL }}).
+{{- end }}

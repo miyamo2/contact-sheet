@@ -1,0 +1,23 @@
+{{/*
+flat -- every image in one table, no grouping.
+
+For a directory with no structure worth folding. Rows are full paths, so a
+nested file still reads unambiguously -- name the column to match:
+
+  row-label: path
+  template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/v1/templates/flat.tmpl
+
+Go text/template notation (https://pkg.go.dev/text/template). The fields and
+helpers a template may call are listed at
+https://github.com/miyamo2/contact-sheet#writing-the-comment
+*/ -}}
+### {{ .Title }}
+
+{{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · [run #{{ .Run.Number }}]({{ .Run.URL }})
+{{ if .Published }}
+{{ table .Images "path" "" "" "image" }}
+{{- else if eq .State "publish-failed" }}
+{{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
+{{- else }}
+This run produced no images.
+{{- end }}
