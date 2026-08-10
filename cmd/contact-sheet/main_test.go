@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -198,6 +199,82 @@ func TestWithURLsEscapesEachSegment(t *testing.T) {
 		// the slashes between segments are path and stay slashes
 		if strings.Count(image.URL, "/") != strings.Count(want[i], "/") {
 			t.Errorf("%s: separators were escaped", image.Path)
+		}
+	}
+}
+
+// A skipped run is a green run, so the only thing that tells a workflow it did
+// not comment is the state. It used to write no outputs at all, leaving a step
+// that never ran and one that skipped indistinguishable.
+func TestSkippedWritesTheState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "output")
+	t.Setenv("GITHUB_OUTPUT", path)
+
+	if err := skipped(13, 42); err != nil {
+		t.Fatalf("skipped: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	for _, want := range []string{
+		"state<<CONTACT_SHEET_EOF\nskipped\n",
+		"total<<CONTACT_SHEET_EOF\n13\n",
+		"pull<<CONTACT_SHEET_EOF\n42\n",
+		"ref<<CONTACT_SHEET_EOF\n\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// An unescaped newline would end the workflow command and print the rest of the
+// message as ordinary output, which is how an annotation goes missing.
+func TestEscapeCommand(t *testing.T) {
+	for _, tt := range []struct{ in, want string }{
+		{"no comment on #42", "no comment on #42"},
+		{"two\nlines", "two%0Alines"},
+		{"100% of the time", "100%25 of the time"},
+		{"carriage\r\nreturn", "carriage%0D%0Areturn"},
+	} {
+		if got := escapeCommand(tt.in); got != tt.want {
+			t.Errorf("escapeCommand(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestSummarizeAppends(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "summary.md")
+	t.Setenv("GITHUB_STEP_SUMMARY", path)
+
+	summarize("### one")
+	summarize("### two")
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "### one\n### two\n" {
+		t.Errorf("got %q", raw)
+	}
+}
+
+// Outside Actions there is no summary file, and writing one is not something to
+// fail a local --dry-run over.
+func TestSummarizeWithoutActions(t *testing.T) {
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	summarize("### nothing to write this to")
+}
+
+// The summary is what a maintainer reads when a fork's pull request got no
+// comment, so it has to name the fix and not just the cause.
+func TestForkSummaryNamesTheFix(t *testing.T) {
+	got := fmt.Sprintf(forkSummary, 42, "miyamo2/blog")
+	for _, want := range []string{"#42", "miyamo2/blog", "read-only", "#pull-requests-from-forks"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the summary does not mention %q:\n%s", want, got)
 		}
 	}
 }

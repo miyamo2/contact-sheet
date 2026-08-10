@@ -132,12 +132,14 @@ func run(ctx context.Context) error {
 			return err
 		}
 		if pull == nil {
+			// a push to a branch with no pull request open on it. Expected
+			// rather than wrong, so it gets no annotation
 			logf("%s belongs to no pull request; nothing to comment on", short(sha))
-			return nil
+			return skipped(collected.Total, 0)
 		}
 		if pull.State != "open" {
 			logf("#%d is %s; leaving it alone", pull.Number, pull.State)
-			return nil
+			return skipped(collected.Total, pull.Number)
 		}
 		if pull.FromFork() {
 			// a fork's pull request is not out of bounds -- the token is. The
@@ -150,8 +152,15 @@ func run(ctx context.Context) error {
 				return err
 			}
 			if !writable {
+				// this one is worth saying out loud. A green job that quietly
+				// did nothing looks exactly like one that worked, and the log
+				// of a job that passed is not somewhere anybody goes looking
 				logf("#%d comes from a fork and this token cannot write to %s; skipping", pull.Number, repository)
-				return nil
+				notice(fmt.Sprintf(
+					"No comment on #%d: it comes from a fork, and the token this job holds cannot write to %s.",
+					pull.Number, repository))
+				summarize(fmt.Sprintf(forkSummary, pull.Number, repository))
+				return skipped(collected.Total, pull.Number)
 			}
 			logf("#%d comes from a fork, and this token can write to %s", pull.Number, repository)
 		}
@@ -410,6 +419,68 @@ func withURLs(images []sheet.Image, rawURL, repository, commit string) []sheet.I
 		out = append(out, image)
 	}
 	return out
+}
+
+// forkSummary is the run summary for the one skip a maintainer is likely to
+// have meant to avoid. It names the fix rather than only the cause, because
+// somebody reading it has a pull request in front of them with no comment on it
+// and no idea that a second workflow is what this takes.
+const forkSummary = `### Contact Sheet
+
+No comment on #%d: it comes from a fork, and the token this job holds cannot
+write to %s.
+
+A workflow that a fork's pull request triggered gets a read-only token whatever
+the permissions block asks for, and no secret of yours is passed to it either.
+Commenting on one takes a second workflow, off your default branch — see
+[Pull requests from forks](https://github.com/miyamo2/contact-sheet#pull-requests-from-forks).
+`
+
+// skipped ends a run that will not comment, and says so in the outputs. A
+// workflow branching on `state` would otherwise read the empty string and have
+// to know that it means this. `skipped` is not one of the states a template
+// sees: the run ends before there is anything to render.
+func skipped(total, pull int) error {
+	return writeOutputs(map[string]string{
+		"state":    "skipped",
+		"total":    strconv.Itoa(total),
+		"pull":     strconv.Itoa(pull),
+		"ref":      "",
+		"commit":   "",
+		"comments": "",
+	})
+}
+
+// notice puts a line on the run's page and in its annotations, which is where
+// somebody looks when a job is green and nothing happened.
+func notice(message string) {
+	fmt.Printf("::notice title=Contact Sheet::%s\n", escapeCommand(message))
+}
+
+// escapeCommand encodes the three characters a workflow command's data cannot
+// carry. Anything unescaped here would end the command early and print the rest
+// as ordinary output.
+func escapeCommand(message string) string {
+	return strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A").Replace(message)
+}
+
+// summarize appends Markdown to the run summary, the panel at the top of a
+// run's page. Not being able to write it is not a reason to fail a run that
+// otherwise did what it was asked.
+func summarize(markdown string) {
+	path := os.Getenv("GITHUB_STEP_SUMMARY")
+	if path == "" {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		logf("could not write the run summary: %v", err)
+		return
+	}
+	defer file.Close()
+	if _, err := io.WriteString(file, markdown+"\n"); err != nil {
+		logf("could not write the run summary: %v", err)
+	}
 }
 
 func writeOutputs(values map[string]string) error {

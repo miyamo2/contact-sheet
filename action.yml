@@ -83,7 +83,9 @@ inputs:
 
 outputs:
   state:
-    description: '`published`, `publish-failed`, or `empty`.'
+    description: >-
+      `published`, `publish-failed`, `empty`, or `skipped` when the run ended
+      without a comment.
     value: ${{ steps.contact-sheet.outputs.state }}
   total:
     description: Number of images in the comment.

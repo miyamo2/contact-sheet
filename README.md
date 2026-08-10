@@ -72,12 +72,16 @@ jobs:
           status: ${{ github.event.workflow_run.conclusion }}
 ```
 
-Four things are worth knowing before you copy it:
+Like every event that is not tied to a code ref, `workflow_run` resolves the
+workflow from your default branch — so the pull request that adds these two
+files will run `E2E` and no comment will appear. It starts working when it is
+merged.
+
+Three things are worth knowing before you copy it:
 
 | | |
 | --- | --- |
-| it starts working one merge later | `workflow_run` only ever runs the default branch's copy of a workflow, so the pull request that adds this file cannot exercise it |
-| `sha` | that same job stands on your default branch, so `GITHUB_SHA` is not the commit under review. This input is what the status line shows and what the pull request is resolved from |
+| `sha` | that job stands on your default branch, so `GITHUB_SHA` is not the commit under review. This input is what the status line shows and what the pull request is resolved from |
 | no checkout | nothing here fetches the fork's head, and nothing should. If you need a custom template, `actions/checkout` in this workflow gives you *your* default branch, which is where it belongs |
 | `status` | `workflow_run.conclusion` is the triggering run's outcome as a whole, not one step's |
 
@@ -110,8 +114,10 @@ permissions:
 ```
 
 Faced with a fork's pull request this does nothing at all: the token it holds
-cannot write, the action sees that and skips rather than failing. Nothing
-breaks, and there is no comment either.
+cannot write, the action sees that and skips rather than failing. The run stays
+green, `state` comes back `skipped`, and the reason is put on the run's page —
+not only in the log — because a pull request with no comment on it is otherwise
+a mystery. There is still no comment.
 
 ## What the comment looks like
 
@@ -471,6 +477,21 @@ would have posted, so a template can be iterated on locally in seconds.
 ## Outputs
 
 `state`, `total`, `ref`, `commit`, `comments`, `pull`.
+
+`state` is the one to branch on:
+
+| | |
+| --- | --- |
+| `published` | images were collected and pushed; `ref`, `commit` and `comments` are set |
+| `publish-failed` | images were collected, the push did not work, and the comment says so |
+| `empty` | nothing under `path` matched |
+| `skipped` | the run ended without a comment: no pull request on this commit, one that is not open, or one from a fork this token cannot write to |
+
+A `skipped` run is a green one. The reason is in the log, and the fork case —
+the one you probably did not mean — also writes a notice and a run summary
+naming the fix, because a job that passed and did nothing otherwise looks
+exactly like a job that worked. The first three are the states a template sees;
+`skipped` ends the run before there is anything to render.
 
 ## License
 
