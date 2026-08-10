@@ -255,17 +255,17 @@ func run(ctx context.Context) error {
 		logf("commented on #%d as %s (%d)", pull.Number, t.key, commentID)
 	}
 
-	if cfg.dryRun {
-		return nil
-	}
-
 	// a template dropped from the list leaves a comment showing an older run
-	if pruned, err := client.PruneComments(ctx, pull.Number, prefix, keep); err != nil {
-		return err
-	} else if pruned > 0 {
-		logf("deleted %d comment(s) from templates no longer listed", pruned)
+	if !cfg.dryRun {
+		if pruned, err := client.PruneComments(ctx, pull.Number, prefix, keep); err != nil {
+			return err
+		} else if pruned > 0 {
+			logf("deleted %d comment(s) from templates no longer listed", pruned)
+		}
 	}
 
+	// written on a dry run too. Nothing here pushes or comments, and a rehearsal
+	// that leaves out what a workflow reads afterwards is not one
 	return writeOutputs(map[string]string{
 		"state":    string(view.State),
 		"total":    strconv.Itoa(view.Total),

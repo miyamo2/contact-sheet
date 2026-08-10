@@ -35,7 +35,9 @@ inputs:
   status:
     description: >-
       Outcome of the job that produced the images, `success` or `failure`.
-      Usually `${{ steps.<id>.outcome }}`.
+      Usually the `outcome` of the step that produced them. (No expression may
+      appear in a description here: the runner parses one and fails to load the
+      manifest.)
     required: false
     default: success
   comment-id:
@@ -64,7 +66,7 @@ inputs:
       Commit the images belong to: the one shown in the status line, and the one
       the pull request is resolved from. Empty takes `GITHUB_SHA`, which is right
       for every event except `workflow_run` -- there the job stands on the default
-      branch, and this wants `${{ github.event.workflow_run.head_sha }}`.
+      branch, and this wants the triggering run's `head_sha`.
     required: false
     default: ''
   pull-number:

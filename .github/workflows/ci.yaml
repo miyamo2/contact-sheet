@@ -33,6 +33,53 @@ jobs:
           CONTACT_SHEET_DRY_RUN=true \
             /tmp/contact-sheet
 
+  # the job above proves the binary reads its environment; it says nothing about
+  # action.yml, which only /dogfooding ever loaded -- and a manifest that does
+  # not parse fails at load, after the checkout and the build, with nothing in
+  # the diff to suggest it. An expression in an input's `description` is enough.
+  # So: run the composite action itself, the way a user's workflow does.
+  action:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+
+      # install.sh installs the release named by VERSION, which does not exist
+      # for a commit under review. Building into the directory it installs to
+      # leaves it to find its work already done
+      - name: Build the binary where the action installs one
+        run: |
+          set -euo pipefail
+          destination="${RUNNER_TEMP}/contact-sheet-$(tr -d '[:space:]' < VERSION)"
+          mkdir -p "${destination}"
+          go build -o "${destination}/contact-sheet" ./cmd/contact-sheet
+
+      # dry-run resolves no pull request and pushes nothing, so this needs no
+      # token and passes on a fork's pull request like any other
+      - id: sheet
+        uses: ./
+        with:
+          path: internal/collect/testdata/captures
+          layout: '^(?:[^/]+/)?(?P<screen>.+?)(?:-(?P<theme>light|dark))?\.png$'
+          template-files: templates/themes.tmpl
+          title: CI
+          row-label: screen
+          sha: ${{ github.sha }}
+          dry-run: 'true'
+
+      # outputs cross back through action.yml, so they are worth asserting: a
+      # renamed step id there leaves every one of them empty
+      - name: Check the outputs came back
+        env:
+          STATE: ${{ steps.sheet.outputs.state }}
+          TOTAL: ${{ steps.sheet.outputs.total }}
+        run: |
+          [[ "${STATE}" == published ]] || { echo "::error::state=${STATE}"; exit 1; }
+          [[ "${TOTAL}" == 13 ]] || { echo "::error::total=${TOTAL}"; exit 1; }
+
   # the list is read off the directory rather than written out here, so a new
   # template gets its own job the moment it lands
   list-templates:
