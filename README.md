@@ -1,5 +1,3 @@
-English · [日本語](./README_ja.md)
-
 # Contact Sheet
 
 The images a CI run produced, in the pull request comment. A table of
