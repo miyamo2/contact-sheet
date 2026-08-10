@@ -3,7 +3,7 @@ description: Attach artifact images to the pull request comment
 author: miyamo2
 branding:
   icon: image
-  color: purple
+  color: blue
 
 inputs:
   path:
