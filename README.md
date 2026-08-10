@@ -1,31 +1,37 @@
 # Contact Sheet
 
-Attach artifact images to the pull request comment.
+The images a CI run produced, in the pull request comment. A table of
+thumbnails, rewritten in place on every push.
 
-A CI run that produces screenshots leaves them in an artifact, which is a zip
-behind a login — it cannot be looked at during a review. This action puts them
-in the pull request itself, as a table of thumbnails that updates in place on
-every push.
+Add the step after whatever produces the images:
 
 ```yaml
-- name: Run the e2e suite
-  id: e2e
+- name: Capture
+  id: capture
   run: npm run e2e
 
 - uses: miyamo2/contact-sheet@v1
   if: ${{ always() }}
   with:
     path: e2e/captures
-    status: ${{ steps.e2e.outcome }}
+    status: ${{ steps.capture.outcome }}
     group-order: desktop-chromium,mobile-chromium
     row-label: screen
 ```
+
+Then grant the two permissions the job needs:
 
 ```yaml
 permissions:
   contents: write        # pushes the images to refs/contact-sheet/*
   pull-requests: write   # writes the comment
 ```
+
+Screenshots are the obvious case, but nothing here is specific to them: the
+action takes a directory of images and a rule for arranging them, so
+visual-regression diffs, rendered plots and generated diagrams work the same
+way. Without it they stay in an artifact — a zip behind a login, which cannot
+be opened during a review.
 
 ## Where the images go
 
@@ -160,13 +166,13 @@ captured.
 
 ## Checking a template without a token
 
-The binary runs anywhere. `--dry-run` resolves no pull request, pushes nothing
-and prints the body it would have posted:
-
 ```console
 $ go install github.com/miyamo2/contact-sheet/cmd/contact-sheet@latest
 $ contact-sheet --dry-run --path e2e/captures --template-file .github/contact-sheet.tmpl
 ```
+
+`--dry-run` resolves no pull request, pushes nothing and prints the body it
+would have posted, so a template can be iterated on locally in seconds.
 
 ## Inputs
 
