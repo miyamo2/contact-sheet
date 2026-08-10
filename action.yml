@@ -5,6 +5,12 @@ branding:
   icon: image
   color: blue
 
+# A description is template text like every other string in this file: GitHub
+# scans it for expressions, and none of the contexts a workflow has exist while
+# the metadata is being loaded, so one left in prose is not quoted -- it is a
+# validation error that fails the whole file, and every job using the action
+# with it. An input usually filled from an expression therefore names its
+# context path bare here, without the delimiters wrapped around it.
 inputs:
   path:
     description: Directory of images to attach.
@@ -35,7 +41,7 @@ inputs:
   status:
     description: >-
       Outcome of the job that produced the images, `success` or `failure`.
-      Usually `${{ steps.<id>.outcome }}`.
+      Usually an expression over `steps.<id>.outcome`.
     required: false
     default: success
   comment-id:
