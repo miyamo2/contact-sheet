@@ -3,7 +3,91 @@
 The images a CI run produced, in the pull request comment. A table of
 thumbnails, rewritten in place on every push.
 
-Add the step after whatever produces the images:
+## Get Started
+
+Two ways in, and one question decides it: can a pull request on this repository
+come from a fork?
+
+### Recommended — two workflows
+
+**This one is fork safe.** A contributor's pull request gets its contact sheet
+like anyone else's, and no token that can write to your repository is ever in
+the same job as code from the fork. The capture runs where GitHub caps it — a
+read-only token, no secrets — and hands over image bytes; the comment is written
+by a workflow of yours, off your default branch, which never fetches the fork's
+head.
+
+It covers your own branches in the same pass, so this is the only setup a
+repository needs, fork or not.
+
+```yaml
+# .github/workflows/e2e.yaml — runs the pull request's code
+name: E2E
+on: pull_request
+
+permissions:
+  contents: read   # for the checkout; uploading an artifact needs no permission
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}   # a failed run is when the images matter most
+        with:
+          name: captures
+          path: e2e/captures
+```
+
+```yaml
+# .github/workflows/contact-sheet.yaml — runs yours
+name: Contact Sheet
+on:
+  workflow_run:
+    workflows: [E2E]     # matched against the name: above, not the file name
+    types: [completed]
+
+permissions:
+  actions: read          # reads the artifact off the run that triggered this
+  contents: write        # pushes the images to refs/contact-sheet/*
+  pull-requests: write   # writes the comment
+
+jobs:
+  comment:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: captures
+          path: captures
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - uses: miyamo2/contact-sheet@v1
+        with:
+          path: captures
+          sha: ${{ github.event.workflow_run.head_sha }}
+          status: ${{ github.event.workflow_run.conclusion }}
+```
+
+Four things are worth knowing before you copy it:
+
+| | |
+| --- | --- |
+| it starts working one merge later | `workflow_run` only ever runs the default branch's copy of a workflow, so the pull request that adds this file cannot exercise it |
+| `sha` | that same job stands on your default branch, so `GITHUB_SHA` is not the commit under review. This input is what the status line shows and what the pull request is resolved from |
+| no checkout | nothing here fetches the fork's head, and nothing should. If you need a custom template, `actions/checkout` in this workflow gives you *your* default branch, which is where it belongs |
+| `status` | `workflow_run.conclusion` is the triggering run's outcome as a whole, not one step's |
+
+[Pull requests from forks](#pull-requests-from-forks) has the reasoning, and
+what a fork does and does not get to decide.
+
+### The short way — one step
+
+If nothing will ever arrive from a fork — an internal repository, a personal one
+— it is one step after whatever produces the images:
 
 ```yaml
 - name: Capture
@@ -17,13 +101,17 @@ Add the step after whatever produces the images:
     status: ${{ steps.capture.outcome }}
 ```
 
-Then grant the two permissions the job needs:
+with the two permissions that job needs:
 
 ```yaml
 permissions:
   contents: write        # pushes the images to refs/contact-sheet/*
   pull-requests: write   # writes the comment
 ```
+
+Faced with a fork's pull request this does nothing at all: the token it holds
+cannot write, the action sees that and skips rather than failing. Nothing
+breaks, and there is no comment either.
 
 ## What the comment looks like
 
@@ -124,91 +212,42 @@ the images are instead. Nothing else about the run changes.
 
 ## Pull requests from forks
 
+Why the [recommended setup](#recommended--two-workflows) is two files rather
+than one.
+
 A workflow a fork's pull request triggered holds a read-only `GITHUB_TOKEN`.
-GitHub caps it there because the workflow is running the fork's code, and no
-input to this action lifts the cap: that token can neither push the ref nor
+GitHub caps it there because that workflow is running the fork's code — and for
+the same reason it withholds every secret, so a dedicated PAT or a GitHub App in
+`secrets` is not a way round it either. Nothing in that job can push the ref or
 write the comment.
 
-What lifts it is running somewhere else. Split the run in two — the fork's code
-produces the images with a token worth nothing, and a second workflow, yours,
-off your default branch, turns them into the comment:
+What lifts the cap is not a permission but a different job. `workflow_run` runs
+the default branch's copy of a workflow, which is yours, so it gets your
+repository's token and your secrets. Splitting the run in two puts the fork's
+code and the write token in separate jobs that never overlap, and the only thing
+that crosses between them is the artifact.
 
-```yaml
-# .github/workflows/e2e.yaml — runs the pull request's code
-name: E2E
-on: pull_request
-
-permissions:
-  contents: read
-
-jobs:
-  capture:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - run: npm run e2e
-      - uses: actions/upload-artifact@v4
-        if: ${{ always() }}
-        with:
-          name: captures
-          path: e2e/captures
-```
-
-```yaml
-# .github/workflows/contact-sheet.yaml — runs yours
-name: Contact Sheet
-on:
-  workflow_run:
-    workflows: [E2E]
-    types: [completed]
-
-permissions:
-  actions: read          # reads the artifact off the run that triggered this
-  contents: write        # pushes the images to refs/contact-sheet/*
-  pull-requests: write   # writes the comment
-
-jobs:
-  comment:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: captures
-          path: captures
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
-
-      - uses: miyamo2/contact-sheet@v1
-        with:
-          path: captures
-          sha: ${{ github.event.workflow_run.head_sha }}
-          status: ${{ github.event.workflow_run.conclusion }}
-```
-
-That is the whole change, and it covers your own branches too — `workflow_run`
-fires for every run of `E2E`, whoever opened the pull request. Four things are
-worth knowing before you copy it:
-
-| | |
-| --- | --- |
-| `sha` | a `workflow_run` job stands on your default branch, so `GITHUB_SHA` is not the commit under review. This input is what the status line shows and what the pull request is resolved from |
-| no checkout | nothing here fetches the fork's head. The artifact is image bytes; if you need a custom template, `actions/checkout` in this workflow gives you *your* default branch, which is where it should live |
-| `workflow_run` runs the default branch's copy | so this file only starts working one merge after you write it |
-| `status` | `workflow_run.conclusion` is the whole triggering run's outcome, not one step's |
+That crossing is safe because an artifact is bytes. What would not be safe is
+checking out `workflow_run.head_sha` in the second workflow and building it —
+`npm ci` alone is enough, `postinstall` runs — because that puts fork code back
+next to the write token, which is the whole thing the split exists to prevent.
 
 The action makes its own decision either way. Faced with a fork's pull request
 it asks GitHub whether the token it was handed can write to the repository, and
-skips the run when it cannot rather than failing — so leaving a plain
-single-workflow setup in place costs nothing, and a repository that hands write
-tokens to fork pull requests on purpose is not second-guessed.
+skips when it cannot rather than failing. So the short setup costs nothing if
+you leave it in place, and a repository that hands write tokens to fork pull
+requests on purpose is not second-guessed.
 
 ### What a fork gets to decide
 
-Images and file names, and nothing else. The images are pushed to a ref of
-yours, which costs storage; the names are written into the comment, which is
-where the care goes. A file whose name would end the table cell, code span or
-tag a template put it in is not collected — see
-[Choosing which files to collect](#choosing-which-files-to-collect).
+Images and file names, and nothing else — but it does decide those completely.
+The workflow file a `pull_request` run executes is the pull request's own copy,
+so the artifact's contents, names and size are the contributor's to choose.
+
+The images are pushed to a ref of yours, which costs storage. The names are
+written into the comment, which is where the care goes: a file whose name would
+end the table cell, code span or tag a template put it in is not collected — see
+[Names that cannot go in a comment](#names-that-cannot-go-in-a-comment).
 
 ## How this compares
 
