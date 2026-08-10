@@ -63,7 +63,7 @@ Three things in there are worth knowing:
 | --- | --- |
 | `<!-- contact-sheet:default -->` | names the comment. The next run rewrites the comment carrying this marker instead of adding one, and `default` is the template that wrote it |
 | ✅ / ❌ | the `status` input, i.e. the job that produced the images — not whether publishing them worked |
-| `4c7e0d1…` in the URLs | the orphan commit holding the images, which is not the head commit `9f1c2ab` |
+| `4c7e0d1…` in the URLs | the commit holding the images, which is not the head commit `9f1c2ab` |
 
 The other two states are a single line. Publishing failed:
 
@@ -94,16 +94,18 @@ nothing:
 | Git LFS | keeps clones small, but storage and bandwidth are metered and deleting the files does not give the quota back |
 | release assets | free and unmetered, but a repository with no releases grows a Releases section that exists only to hold screenshots |
 
-Contact Sheet pushes an orphan commit to **`refs/contact-sheet/pr-<number>/<run>`**,
-which is in none of those ways visible: not in the branch list, not in the
-Releases tab, and not in the default fetch refspec
-(`+refs/heads/*:refs/remotes/origin/*`). Nobody's clone or pull pays for it.
+Contact Sheet pushes the images to a **custom ref**,
+`refs/contact-sheet/pr-<number>/<run>`. `refs/heads/*` and `refs/tags/*` are
+where branches and tags live by convention; a ref anywhere else under `refs/` is
+an ordinary ref that those conventions simply do not reach. This one is not in
+the branch list, not in the Releases tab, and not in the default fetch refspec
+`+refs/heads/*:refs/remotes/origin/*`, so no clone or pull carries the images.
+`raw.githubusercontent.com` serves them anyway, because it addresses a blob by
+commit sha and does not care which ref leads there. GitHub does the same thing
+for pull requests, under `refs/pull/*`.
 
-Two facts are what make that work. `GITHUB_TOKEN` with `contents: write` may
-push a ref outside `refs/heads/*`, and `raw.githubusercontent.com` addresses a
-blob by commit sha — it does not care that the commit is reachable from no
-branch. So the images are fetchable by URL while being invisible to everything
-that walks branches.
+The commit under that ref has no parent, so what gets pushed is the images and
+none of your repository's history.
 
 One ref per run, never rewritten, so a comment written months ago still
 resolves — the ref is what keeps the objects from being collected. To reclaim
@@ -113,6 +115,15 @@ the space of a pull request that no longer matters:
 $ git ls-remote origin 'refs/contact-sheet/*'
 $ git push origin :refs/contact-sheet/pr-42/12345678.1
 ```
+
+### Further reading
+
+| | |
+| --- | --- |
+| [gitrepository-layout](https://git-scm.com/docs/gitrepository-layout) | what lives under `refs/`, and which hierarchies are convention rather than rule |
+| [Git Internals — Git References](https://git-scm.com/book/en/v2/Git-Internals-Git-References) | what a ref actually is |
+| [git-fetch, "Configured Remote-tracking Branches"](https://git-scm.com/docs/git-fetch#_configured_remote_tracking_branches) | the default refspec — why `refs/heads/*` arrives and nothing else does |
+| [git-push, `<refspec>`](https://git-scm.com/docs/git-push#Documentation/git-push.txt-ltrefspecgt) | the `HEAD:refs/…` form, and deleting a ref with a leading colon |
 
 ### Two things this cannot do
 

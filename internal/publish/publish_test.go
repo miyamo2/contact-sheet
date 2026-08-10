@@ -10,7 +10,7 @@ import (
 )
 
 // bareRemote stands in for the repository the action pushes to. A local path
-// exercises the real git plumbing -- orphan commit, ref outside refs/heads/*,
+// exercises the real git plumbing -- parentless commit, ref outside refs/heads/*,
 // blob reachable only through that ref -- with no network and no token.
 func bareRemote(t *testing.T) string {
 	t.Helper()

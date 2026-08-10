@@ -57,7 +57,7 @@ permissions:
 | --- | --- |
 | `<!-- contact-sheet:default -->` | コメントの名前。次の実行はこの目印を持つコメントを書き換えるので、数が増えない。`default` は書いたテンプレートの名前 |
 | ✅ / ❌ | `status` 入力、つまり画像を作ったジョブの結果。公開できたかどうかではない |
-| URLの `4c7e0d1…` | 画像を保持するorphan commit。headコミット `9f1c2ab` とは別物 |
+| URLの `4c7e0d1…` | 画像を保持するコミット。headコミット `9f1c2ab` とは別物 |
 
 残り2つの状態は1行で終わる。プッシュに失敗したとき:
 
@@ -83,9 +83,9 @@ No images under the configured path matched the layout — see [the logs](…).
 | Git LFS | cloneは軽いままだが、ストレージも帯域も従量で、消しても枠は戻らない |
 | リリースアセット | 無料で従量課金もないが、リリースのないリポジトリに、画像を置くためだけのReleasesタブが生える |
 
-Contact Sheet は `refs/contact-sheet/pr-<number>/<run>` にorphan commitをプッシュする。ブランチ一覧にもReleasesタブにも出ず、既定のfetch refspec (`+refs/heads/*:refs/remotes/origin/*`) にも入らない。誰のcloneもpullも、この分を負担しない。
+Contact Sheet は画像を**カスタムref**、`refs/contact-sheet/pr-<number>/<run>` にプッシュする。ブランチとタグが `refs/heads/*` と `refs/tags/*` にあるのは慣習で、`refs/` 以下のそれ以外の場所に置いたrefも普通のrefだ。ただ、その慣習が届かない。だからブランチ一覧にもReleasesタブにも出ず、既定のfetch refspec `+refs/heads/*:refs/remotes/origin/*` にも掛からず、cloneもpullも画像を運ばない。それでも `raw.githubusercontent.com` は返す。blobをコミットのshaで引くので、どのrefから辿れるかを見ていないからだ。GitHub自身もプルリクエストに同じことをしていて、そちらは `refs/pull/*` に置かれている。
 
-成立させているのは2つの事実だ。`contents: write` を持つ `GITHUB_TOKEN` は `refs/heads/*` の外へrefをプッシュできる。そして `raw.githubusercontent.com` はblobをコミットのshaで引くので、そのコミットがどのブランチからも辿れなくても構わない。おかげで画像はURLで取得できるのに、ブランチを辿る仕組みからは見えない。
+このrefが指すコミットは親を持たない。プッシュされるのは画像だけで、リポジトリの履歴は付いてこない。
 
 refは1実行につき1つ作り、あとは書き換えない。数か月前のコメントがいまも解決するのはそのためで、オブジェクトが回収されずに残るのもこのrefがあるからだ。用済みのプルリクエストの分を空けたくなったら、こうする:
 
@@ -93,6 +93,15 @@ refは1実行につき1つ作り、あとは書き換えない。数か月前の
 $ git ls-remote origin 'refs/contact-sheet/*'
 $ git push origin :refs/contact-sheet/pr-42/12345678.1
 ```
+
+### 詳しく知るには
+
+| | |
+| --- | --- |
+| [gitrepository-layout](https://git-scm.com/docs/gitrepository-layout) | `refs/` 以下に何が置かれるか。どの階層が規則ではなく慣習なのか |
+| [Git Internals — Git References](https://git-scm.com/book/en/v2/Git-Internals-Git-References) | refとは何か |
+| [git-fetch, "Configured Remote-tracking Branches"](https://git-scm.com/docs/git-fetch#_configured_remote_tracking_branches) | 既定のrefspec。なぜ `refs/heads/*` だけが届くのか |
+| [git-push, `<refspec>`](https://git-scm.com/docs/git-push#Documentation/git-push.txt-ltrefspecgt) | `HEAD:refs/…` の書き方と、先頭コロンによるref削除 |
 
 ### できないことが2つある
 
