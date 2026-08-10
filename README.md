@@ -102,6 +102,12 @@ which is in none of those ways visible: not in the branch list, not in the
 Releases tab, and not in the default fetch refspec
 (`+refs/heads/*:refs/remotes/origin/*`). Nobody's clone or pull pays for it.
 
+Two facts are what make that work. `GITHUB_TOKEN` with `contents: write` may
+push a ref outside `refs/heads/*`, and `raw.githubusercontent.com` addresses a
+blob by commit sha — it does not care that the commit is reachable from no
+branch. So the images are fetchable by URL while being invisible to everything
+that walks branches.
+
 One ref per run, never rewritten, so a comment written months ago still
 resolves — the ref is what keeps the objects from being collected. To reclaim
 the space of a pull request that no longer matters:
@@ -121,6 +127,38 @@ the images are instead. Nothing else about the run changes.
 **Pull requests from forks.** A fork's `GITHUB_TOKEN` is read-only: it can
 neither push the ref nor write the comment. The action detects this and exits
 without doing anything.
+
+## How this compares
+
+Every action of this kind answers one question — where do the images live,
+given that a comment can only load a public http(s) URL — and the answer is
+most of what separates them:
+
+| where the images live | what that costs |
+| --- | --- |
+| an artifact alone | nothing, but the comment cannot show them; a reviewer downloads a zip |
+| a third-party image host, e.g. Imgur | the images are public however private the repository, under someone else's rate limits and retention |
+| a branch in your repository | `refs/heads/*` is in the default fetch refspec, so every clone and pull carries every image, indefinitely |
+| a hosted visual-regression service | baselines, diffing and approvals, but the images leave your repository and snapshots are billed |
+| `refs/contact-sheet/*` — this action | one ref per run, invisible to clones, deleted with a `git push origin :ref` when you want the space back |
+
+[comment-webpage-screenshot](https://github.com/saadmk11/comment-webpage-screenshot)
+and [comment-pr-with-images](https://github.com/opengisch/comment-pr-with-images)
+are the closest actions; both offer the middle two rows, defaulting to a branch.
+
+Two more differences decide whether this is the right tool:
+
+**It does not take the screenshots.** Those actions capture URLs or HTML files
+for you, which is the shorter path right up until your suite already has a
+capture step with its own fixtures, auth and viewports. Contact Sheet starts
+from a directory that already exists, so Playwright, Cypress, Storybook or a
+plotting script all feed it the same way — and the grouping follows your file
+names rather than a layout it imposes.
+
+**It does not diff them.** No baseline, no approval workflow, nothing fails on
+a changed pixel. If you need a build to block on a visual change, one of the
+services above is the answer; this puts images where a reviewer can see them
+and stops there.
 
 ## Laying out your images
 
