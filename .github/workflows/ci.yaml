@@ -33,11 +33,11 @@ jobs:
           CONTACT_SHEET_DRY_RUN=true \
             /tmp/contact-sheet
 
-  # the job above proves the binary reads its environment; it says nothing about
-  # action.yml, which only /dogfooding ever loaded -- and a manifest that does
-  # not parse fails at load, after the checkout and the build, with nothing in
-  # the diff to suggest it. An expression in an input's `description` is enough.
-  # So: run the composite action itself, the way a user's workflow does.
+  # nothing else here parses action.yml. `go test` does not read it, and
+  # dogfooding.yaml only loads it once a `/dogfooding` comment arrives, from the
+  # copy of that workflow on the default branch -- so a metadata file GitHub
+  # refuses to load reaches main with every tick green, and is found by the
+  # first run that tries to use it. Running the action is the check
   action:
     runs-on: ubuntu-24.04
     steps:
@@ -47,9 +47,9 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # install.sh installs the release named by VERSION, which does not exist
-      # for a commit under review. Building into the directory it installs to
-      # leaves it to find its work already done
+      # install.sh downloads the release named by VERSION, which does not exist
+      # for a commit under review; building into the directory it installs to
+      # leaves it to find its work already done, the way dogfooding.yaml does
       - name: Build the binary where the action installs one
         run: |
           set -euo pipefail
@@ -57,21 +57,20 @@ jobs:
           mkdir -p "${destination}"
           go build -o "${destination}/contact-sheet" ./cmd/contact-sheet
 
-      # dry-run resolves no pull request and pushes nothing, so this needs no
-      # token and passes on a fork's pull request like any other
-      - id: sheet
+      # dry-run pushes nothing and comments nothing, so the workflow's read-only
+      # token is enough and a fork's pull request runs this like any other
+      - name: Load and run the composite action
+        id: sheet
         uses: ./
         with:
           path: internal/collect/testdata/captures
           layout: '^(?:[^/]+/)?(?P<screen>.+?)(?:-(?P<theme>light|dark))?\.png$'
-          template-files: templates/themes.tmpl
-          title: CI
-          row-label: screen
           sha: ${{ github.sha }}
           dry-run: 'true'
 
-      # outputs cross back through action.yml, so they are worth asserting: a
-      # renamed step id there leaves every one of them empty
+      # the inputs above only prove the manifest loads. The outputs cross back
+      # through it as well, and a renamed step id there empties all six without
+      # failing anything -- so one of them is read here
       - name: Check the outputs came back
         env:
           STATE: ${{ steps.sheet.outputs.state }}

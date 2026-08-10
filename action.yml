@@ -5,6 +5,12 @@ branding:
   icon: image
   color: blue
 
+# A description is template text like every other string in this file: GitHub
+# scans it for expressions, and none of the contexts a workflow has exist while
+# the metadata is being loaded, so one left in prose is not quoted -- it is a
+# validation error that fails the whole file, and every job using the action
+# with it. An input usually filled from an expression therefore names its
+# context path bare here, without the delimiters wrapped around it.
 inputs:
   path:
     description: Directory of images to attach.
@@ -35,9 +41,7 @@ inputs:
   status:
     description: >-
       Outcome of the job that produced the images, `success` or `failure`.
-      Usually the `outcome` of the step that produced them. (No expression may
-      appear in a description here: the runner parses one and fails to load the
-      manifest.)
+      Usually an expression over `steps.<id>.outcome`.
     required: false
     default: success
   comment-id:
@@ -66,7 +70,8 @@ inputs:
       Commit the images belong to: the one shown in the status line, and the one
       the pull request is resolved from. Empty takes `GITHUB_SHA`, which is right
       for every event except `workflow_run` -- there the job stands on the default
-      branch, and this wants the triggering run's `head_sha`.
+      branch, and this wants an expression over
+      `github.event.workflow_run.head_sha`.
     required: false
     default: ''
   pull-number:
