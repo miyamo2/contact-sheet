@@ -1,0 +1,239 @@
+name: Dogfooding
+
+# The action's own pull requests get the action's own comment. `/dogfooding` on
+# a pull request runs the action as it stands on that pull request against the
+# captures already checked in under internal/collect/testdata, and leaves one
+# comment per template -- the built-in one, and every file in templates/ -- so a
+# change to a template, or to what the binary renders, is reviewed as the thing
+# a reader would see rather than as a diff.
+#
+# Four things worth knowing before reading further:
+#
+#   - issue_comment only ever runs the copy of this file on the default branch,
+#     so a change to this workflow is in effect one merge after it is written;
+#     everything it checks out, builds and renders does come from the pull
+#     request.
+#   - the command is restricted to a code owner or a maintainer because the job
+#     builds and runs the pull request's code with a token that can write to
+#     this repository. A pull request from a fork is refused outright -- the
+#     action skips one anyway, and checking a fork's head out here is what the
+#     restriction exists to prevent.
+#   - one comment id and one ref namespace per template. The action deletes the
+#     comments its id owns that the run did not produce, so a shared id would
+#     have each job deleting its siblings' comments; and the ref it pushes to is
+#     named after the run, so two invocations in one run would push two
+#     parentless commits to one ref and the second would be rejected.
+#   - the commit in the status line is the default branch's head, because that
+#     is the commit an issue_comment run is standing on. The images and the
+#     templates are the pull request's.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+# a second /dogfooding while the first is still running would have two runs
+# rewriting the same comments, so the second waits rather than starting. It is
+# not cancelled either: a run that has already pushed its ref and written some
+# of its comments is left to finish the rest. GitHub keeps one run waiting per
+# group, so a third command supersedes the one still queued
+concurrency:
+  group: dogfooding-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  # Nothing the gate reads comes from the pull request: the roles come from the
+  # API and CODEOWNERS from the default branch, because a pull request cannot be
+  # allowed to nominate its own author as a code owner. The head is checked out
+  # only once that has passed.
+  authorize:
+    # issue_comment fires on issues too, and .pull_request is set only on a
+    # comment under a pull request
+    if: >-
+      github.event.issue.pull_request != null
+      && startsWith(github.event.comment.body, '/dogfooding')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      allowed: ${{ steps.gate.outputs.allowed }}
+      head-sha: ${{ steps.gate.outputs.head-sha }}
+      templates: ${{ steps.templates.outputs.names }}
+    steps:
+      - name: Check the commenter and the pull request
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          PULL: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+
+          deny() {
+            echo "::notice::$1"
+            echo "allowed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          }
+
+          # a maintainer is a role rather than a list. `permission` collapses
+          # maintain and write into "write", so role_name is the field that can
+          # tell the two apart; a commenter who is no collaborator at all is a
+          # 404, which is a "no" and not an error
+          role="$(gh api "repos/${REPOSITORY}/collaborators/${COMMENTER}/permission" \
+            --jq '.role_name // .permission // "none"' 2> /dev/null || echo none)"
+
+          # a code owner is a list, and the list that counts is the one on the
+          # default branch, which is what this reads. Team entries (@org/team)
+          # are reported rather than resolved: membership needs a token this
+          # workflow does not have
+          owner=false
+          for file in .github/CODEOWNERS CODEOWNERS docs/CODEOWNERS; do
+            content="$(gh api -H 'Accept: application/vnd.github.raw' \
+              "repos/${REPOSITORY}/contents/${file}" 2> /dev/null)" || continue
+            while read -r handle; do
+              if [[ "${handle}" == */* ]]; then
+                echo "::notice::${file}: ${handle} is a team; its members are not checked"
+              elif [[ "${handle,,}" == "@${COMMENTER,,}" ]]; then
+                owner=true
+              fi
+            done < <(sed 's/#.*//' <<< "${content}" | tr -s '[:space:]' '\n' | grep '^@' || true)
+            break
+          done
+
+          echo "@${COMMENTER} is ${role} on ${REPOSITORY}; code owner: ${owner}"
+          case "${role}" in
+            admin | maintain) ;;
+            *)
+              [[ "${owner}" == true ]] \
+                || deny "@${COMMENTER} is neither a maintainer nor a code owner of ${REPOSITORY}; ignoring the command"
+              ;;
+          esac
+
+          # one field per line rather than a tab-separated row: a fork deleted
+          # since the pull request was opened has no repository name, and `read`
+          # would swallow the empty field between two tabs
+          mapfile -t pull < <(gh api "repos/${REPOSITORY}/pulls/${PULL}" \
+            --jq '.state, (.head.repo.full_name // ""), .head.sha')
+          if [[ "${#pull[@]}" -ne 3 ]]; then
+            echo "::error::could not read #${PULL}"
+            exit 1
+          fi
+
+          [[ "${pull[0]}" == open ]] || deny "#${PULL} is ${pull[0]}; leaving it alone"
+          [[ "${pull[1]}" == "${REPOSITORY}" ]] \
+            || deny "#${PULL} comes from ${pull[1]:-a deleted fork}; the action skips a fork's pull request, and this workflow will not check one out"
+
+          echo "allowed=true" >> "${GITHUB_OUTPUT}"
+          echo "head-sha=${pull[2]}" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: steps.gate.outputs.allowed == 'true'
+        with:
+          ref: ${{ steps.gate.outputs.head-sha }}
+
+      # read off the directory the way ci.yaml reads it, so a template added by
+      # the pull request gets its comment without this file being touched.
+      # "default" is the built-in template, which is what an empty
+      # template-files renders
+      - name: List the templates to comment with
+        id: templates
+        if: steps.gate.outputs.allowed == 'true'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(templates/*.tmpl)
+          names="$(printf '%s\n' default "${files[@]##*/}" | jq -R . | jq -s -c .)"
+          echo "names=${names}" >> "${GITHUB_OUTPUT}"
+          echo "${names}"
+
+  dogfooding:
+    needs: authorize
+    if: needs.authorize.outputs.allowed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # pushes the images to refs/contact-sheet/dogfooding/*
+      pull-requests: write # writes the comment, and the acknowledgement
+    strategy:
+      # one template failing to render is a result, not a reason to hide the
+      # rest of the comments
+      fail-fast: false
+      matrix:
+        template: ${{ fromJSON(needs.authorize.outputs.templates) }}
+    name: ${{ matrix.template }}
+    steps:
+      # the command produces nothing for a minute or two; a reaction says it was
+      # picked up. Only the first job needs to leave one, and a failure to react
+      # is not a reason to fail the run
+      - name: Acknowledge the comment
+        if: matrix.template == 'default'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMENT: ${{ github.event.comment.id }}
+        run: |
+          gh api --method POST "repos/${REPOSITORY}/issues/comments/${COMMENT}/reactions" \
+            -f content=eyes --silent
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.authorize.outputs.head-sha }}
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+
+      # the composite action installs the release named by VERSION, which is a
+      # release that does not exist yet for the commit under review. Building
+      # the pull request's binary into the directory install.sh installs to
+      # leaves it to find its work already done -- and makes the comment below
+      # the pull request's own rendering rather than the last release's
+      - name: Build the pull request's binary where the action installs one
+        run: |
+          set -euo pipefail
+          destination="${RUNNER_TEMP}/contact-sheet-$(tr -d '[:space:]' < VERSION)"
+          mkdir -p "${destination}"
+          go build -o "${destination}/contact-sheet" ./cmd/contact-sheet
+
+      # a template is entitled to the inputs its own documentation pairs it
+      # with; the first column of a table is labelled by an input, and flat and
+      # themes do not put file names in it
+      - name: Settle the inputs for ${{ matrix.template }}
+        id: inputs
+        env:
+          TEMPLATE: ${{ matrix.template }}
+        run: |
+          set -euo pipefail
+          key="${TEMPLATE%.tmpl}"
+          file=''
+          [[ "${TEMPLATE}" == default ]] || file="templates/${TEMPLATE}"
+          case "${key}" in
+            flat) row_label=path ;;
+            themes) row_label=screen ;;
+            *) row_label='file name' ;;
+          esac
+          {
+            echo "key=${key}"
+            echo "file=${file}"
+            echo "row_label=${row_label}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Comment with ${{ matrix.template }}
+        uses: ./
+        with:
+          # the repository takes no screenshots of its own; these are the
+          # captures the collector's tests run against -- two directories, a
+          # light and dark sweep, and a trace.zip for the layout to filter out
+          path: internal/collect/testdata/captures
+          layout: '^(?:[^/]+/)?(?P<screen>.+?)(?:-(?P<theme>light|dark))?\.png$'
+          template-files: ${{ steps.inputs.outputs.file }}
+          title: Contact Sheet · ${{ steps.inputs.outputs.key }}
+          row-label: ${{ steps.inputs.outputs.row_label }}
+          comment-id: dogfooding-${{ steps.inputs.outputs.key }}
+          # under refs/contact-sheet/ so that one `git ls-remote` finds these
+          # alongside the real ones, and one `git push origin :ref` reclaims them
+          ref-namespace: refs/contact-sheet/dogfooding/${{ steps.inputs.outputs.key }}
+          pull-number: ${{ github.event.issue.number }}
