@@ -1,6 +1,6 @@
 ### {{ .Title }}
 
-{{ if .Succeeded }}✅ passed{{ else }}❌ failed{{ end }} · commit [`{{ .ShortSHA }}`]({{ .CommitURL }}) · [run #{{ .Run.Number }}]({{ .Run.URL }})
+{{ if .Succeeded }}✅ succeeded{{ else }}❌ failed{{ end }} · commit [`{{ .ShortSHA }}`]({{ .CommitURL }}) · [run #{{ .Run.Number }}]({{ .Run.URL }})
 {{ if eq .State "published" }}
 {{ range .Groups }}{{ if .Name }}{{ details (printf "<b>%s</b> · %d rows" .Name (len .Rows)) (table .) }}{{ else }}{{ table . }}{{ end }}
 {{ end }}
@@ -11,5 +11,5 @@
 {{- else if eq .State "publish-failed" -}}
 {{ .Total }} images were collected, but pushing them failed (`{{ .Failure }}`). They are in the artifacts on [the run]({{ .Run.URL }}).
 {{- else -}}
-No images were produced by this run — see [the logs]({{ .Run.URL }}) for what stopped it.
+No images under the configured path matched the layout — see [the logs]({{ .Run.URL }}).
 {{- end }}

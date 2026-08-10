@@ -1,3 +1,5 @@
+English · [日本語](./README_ja.md)
+
 # Contact Sheet
 
 The images a CI run produced, in the pull request comment. A table of
@@ -43,7 +45,7 @@ image URLs shortened to fit the page:
 <!-- contact-sheet -->
 ### Contact Sheet
 
-✅ passed · commit [`9f1c2ab`](https://github.com/miyamo2/blog/commit/9f1c2ab…) · [run #42](https://github.com/miyamo2/blog/actions/runs/12345678)
+✅ succeeded · commit [`9f1c2ab`](https://github.com/miyamo2/blog/commit/9f1c2ab…) · [run #42](https://github.com/miyamo2/blog/actions/runs/12345678)
 
 <details>
 <summary><b>desktop-chromium</b> · 3 rows</summary>
@@ -79,7 +81,7 @@ The other two states are a single line. Publishing failed:
 Nothing to show:
 
 ```markdown
-No images were produced by this run — see [the logs](…) for what stopped it.
+No images under the configured path matched the layout — see [the logs](…).
 ```
 
 `contact-sheet --print-template` prints the template behind all three.
@@ -169,13 +171,13 @@ image:
 | --- | --- |
 | `group` | which table the image belongs to. Optional — without it you get one flat table |
 | `row` | which line of that table. **Required** |
-| `col` | which column of that line. Optional — without it everything lands in `col-default` |
+| `col` | which column of that line. Optional — a layout without it produces one unnamed column |
 
 The default handles a Playwright suite with one project per viewport and a
 light/dark sweep:
 
 ```
-^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.png$
+^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.(?:png|jpe?g|gif|webp)$
 ```
 
 ```
@@ -270,7 +272,7 @@ would have posted, so a template can be iterated on locally in seconds.
 | `layout` | see above | expression placing each image |
 | `group-order` | `` | comma-separated group names to sort first |
 | `col-order` | `light,dark` | comma-separated column names to sort first |
-| `col-default` | first of `col-order` | column for images with no `col` capture |
+| `col-default` | first of `col-order` | column for images with no `col` capture, when the layout has one |
 | `template-file` | built-in | text/template for the body |
 | `title` | `Contact Sheet` | heading passed to the template |
 | `status` | `success` | outcome of the job that produced the images |

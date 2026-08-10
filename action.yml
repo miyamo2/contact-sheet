@@ -15,7 +15,7 @@ inputs:
       Its named captures place the image: `group` picks the table (optional),
       `row` the line (required), `col` the column (optional).
     required: false
-    default: '^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.png$'
+    default: '^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.(?:png|jpe?g|gif|webp)$'
   group-order:
     description: Comma-separated group names to sort first. Anything unlisted follows alphabetically.
     required: false

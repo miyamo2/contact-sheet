@@ -23,9 +23,13 @@ import (
 	"github.com/miyamo2/contact-sheet/internal/sheet"
 )
 
-// DefaultLayout matches `<group>/<row>[-light|-dark].png`, the layout a
-// Playwright project-per-viewport suite produces.
-const DefaultLayout = `^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.png$`
+// DefaultLayout matches `<group>/<row>[-light|-dark].<ext>`, the layout a
+// Playwright project-per-viewport suite produces. The light/dark alternation is
+// a guess about the caller and costs nothing when it does not apply -- a name
+// that does not end in one of them is simply the whole row. The extension list
+// is not a guess: a directory of .webp or .jpg would otherwise collect nothing
+// and report the run as empty, since an unmatched file is skipped in silence.
+const DefaultLayout = `^(?P<group>[^/]+)/(?P<row>.+?)(?:-(?P<col>light|dark))?\.(?:png|jpe?g|gif|webp)$`
 
 type Options struct {
 	// Root is the directory to walk. A missing directory is not an error: it
@@ -60,9 +64,17 @@ func Collect(o Options) (Result, error) {
 		return Result{}, err
 	}
 
-	colDefault := o.ColDefault
-	if colDefault == "" && len(o.ColOrder) > 0 {
-		colDefault = o.ColOrder[0]
+	// A layout with no `col` capture is not a sweep over anything: each row holds
+	// one image, and that column has no name to print. Falling back to ColOrder
+	// here would head a column of rendered charts with "light". Leave it nameless,
+	// the way a layout with no `group` capture leaves the group nameless.
+	hasCol := hasCapture(o.Layout, "col")
+	colDefault := ""
+	if hasCol {
+		colDefault = o.ColDefault
+		if colDefault == "" && len(o.ColOrder) > 0 {
+			colDefault = o.ColOrder[0]
+		}
 	}
 
 	// group name -> row name -> column -> relative path
@@ -99,7 +111,7 @@ func Collect(o Options) (Result, error) {
 		if col == "" {
 			col = colDefault
 		}
-		if col == "" {
+		if col == "" && hasCol {
 			return fmt.Errorf("collect: %s has no `col` capture and no col-default is set", rel)
 		}
 
@@ -186,11 +198,18 @@ func capture(re *regexp.Regexp, match []string, name string) string {
 	return ""
 }
 
-func requireCapture(re *regexp.Regexp, name string) error {
+func hasCapture(re *regexp.Regexp, name string) bool {
 	for _, n := range re.SubexpNames() {
 		if n == name {
-			return nil
+			return true
 		}
+	}
+	return false
+}
+
+func requireCapture(re *regexp.Regexp, name string) error {
+	if hasCapture(re, name) {
+		return nil
 	}
 	return fmt.Errorf("collect: the layout expression needs a (?P<%s>...) capture", name)
 }

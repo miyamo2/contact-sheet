@@ -97,6 +97,25 @@ func TestCollectWithoutGroupCapture(t *testing.T) {
 	}
 }
 
+// A layout with no `col` capture has nothing to sweep over, so its one column
+// carries no name. Naming it after col-order would head a directory of charts
+// with "light", which is the themed-screenshot case leaking into every other one.
+func TestCollectWithoutColCapture(t *testing.T) {
+	o := options(t, `^(?P<group>[^/]+)/(?P<row>.+)\.png$`)
+	got, err := Collect(o)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	for _, group := range got.Groups {
+		if len(group.Columns) != 1 {
+			t.Fatalf("group %q has %d columns, want 1", group.Name, len(group.Columns))
+		}
+		if group.Columns[0] != "" {
+			t.Errorf("column name = %q, want empty", group.Columns[0])
+		}
+	}
+}
+
 // Two files landing on the same group/row/column would silently drop one, so it
 // is an error rather than a coin flip over which image the reviewer sees.
 func TestCollectRejectsCollision(t *testing.T) {
