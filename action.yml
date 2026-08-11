@@ -73,6 +73,16 @@ inputs:
     description: Push nothing, comment nothing, print the body to the log.
     required: false
     default: 'false'
+  allow-fork:
+    description: >-
+      Comment on a pull request from a fork. Skipped by default because a
+      `pull_request` run on one has a read-only token that can neither push the
+      ref nor write the comment. Set this only where github-token can write to
+      the base repository -- an `issue_comment` or `workflow_run` workflow, or a
+      PAT -- and only where something has decided that running that pull
+      request's code is acceptable.
+    required: false
+    default: 'false'
   github-token:
     description: >-
       Needs `contents: write` (to push the ref) and `pull-requests: write`.
@@ -125,4 +135,5 @@ runs:
         CONTACT_SHEET_IMAGE_WIDTH: ${{ inputs.image-width }}
         CONTACT_SHEET_PULL_NUMBER: ${{ inputs.pull-number }}
         CONTACT_SHEET_DRY_RUN: ${{ inputs.dry-run }}
+        CONTACT_SHEET_ALLOW_FORK: ${{ inputs.allow-fork }}
       run: contact-sheet
