@@ -144,6 +144,29 @@ func TestRenderRefusesToTrim(t *testing.T) {
 	}
 }
 
+// GitHub counts the limit in characters. A title or a file name in a non-Latin
+// script costs three bytes a character, so counting bytes would refuse a body
+// that fits -- and the advice to split the template would be wrong.
+func TestRenderCountsCharactersNotBytes(t *testing.T) {
+	ctx := published()
+	ctx.Title = strings.Repeat("あ", 10) // 10 characters, 30 bytes
+
+	body := render(t, `{{ .Title }}`, ctx, Options{Limit: 10})
+	if body != ctx.Title {
+		t.Errorf("got %q, want %q", body, ctx.Title)
+	}
+
+	r, err := New("big.tmpl", `{{ .Title }}`, Options{Limit: 9})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := r.Render(ctx); err == nil {
+		t.Fatal("want an error when the body is over the limit")
+	} else if !strings.Contains(err.Error(), "10 characters") {
+		t.Errorf("error should count characters, not bytes: %v", err)
+	}
+}
+
 // A failed push must not leave the reader with URLs that 404, so the built-in
 // template has to say where the images actually are.
 func TestDefaultTemplateOnPublishFailure(t *testing.T) {

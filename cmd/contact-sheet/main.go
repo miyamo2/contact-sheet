@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/miyamo2/contact-sheet/internal/collect"
 	"github.com/miyamo2/contact-sheet/internal/ghapi"
@@ -299,7 +300,8 @@ func run(ctx context.Context) error {
 		marker := prefix + t.key + " -->"
 		keep[marker] = true
 
-		body, err := renderOne(cfg, t, view, len(marker)+1)
+		// characters, not bytes: comment-id is a user input and need not be ASCII
+		body, err := renderOne(cfg, t, view, utf8.RuneCountInString(marker)+1)
 		if err != nil {
 			return err
 		}
