@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"text/template"
+	"unicode/utf8"
 
 	"github.com/miyamo2/contact-sheet/internal/sheet"
 )
@@ -320,11 +321,13 @@ func (r *Renderer) Render(ctx Context) (string, error) {
 		return "", fmt.Errorf("render: %s: %w", r.name, err)
 	}
 	body := buf.String()
-	if r.opt.Limit > 0 && len(body) > r.opt.Limit {
+	// characters, not bytes: GitHub counts the limit in characters, and a
+	// title or file name in a non-Latin script costs several bytes each.
+	if n := utf8.RuneCountInString(body); r.opt.Limit > 0 && n > r.opt.Limit {
 		return "", fmt.Errorf(
 			"render: %s produced %d characters, over GitHub's %d limit for one comment; "+
 				"split it into two template files",
-			r.name, len(body), r.opt.Limit)
+			r.name, n, r.opt.Limit)
 	}
 	return body, nil
 }
