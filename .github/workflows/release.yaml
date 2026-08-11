@@ -1,20 +1,30 @@
 name: Release
 
-# Nothing in the tree names the version. The tag is the version: the composite
-# action installs the release matching the ref it was pinned to, and the binary
-# reads its own version out of the build information Go stamps in from that same
-# tag. So a release is a tag and a build, with no commit in front of it.
+# Publishing a GitHub Release is what starts a release. The tag it names is the
+# version: the composite action installs the release matching the ref it was
+# pinned to, and the binary reads its own version out of the build information
+# Go stamps in from that same tag. Nothing in the tree records a version, so
+# there is nothing here that can disagree with the tag.
+#
+# `published` rather than `created`: a release written as a draft first -- which
+# is how notes get written before anyone sees them -- never fires `created`, and
+# `published` covers both that and a release published outright.
+#
+# The assets land on a release that already exists, which is the one thing this
+# ordering costs: between publishing and the end of this run, the release is
+# there with no binaries on it. goreleaser narrows that window rather than
+# widening it -- it drafts the release while it uploads and publishes it again
+# at the end, so the assets appear all at once -- and that second publish does
+# not start this workflow over, because an event raised by GITHUB_TOKEN does not
+# trigger a workflow run.
 #
 # There is no moving major tag. `main` is what the README points at and what
 # branch protection covers, and a release tag is immutable; a `v1` that every
 # release force-pushes to a new commit would be the one ref here that neither of
 # those protects, and nothing points at it any more.
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Version to release, e.g. v1.2.3
-        required: true
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -23,26 +33,31 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     steps:
-      - name: Validate the version
+      - name: Validate the tag
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ github.event.release.tag_name }}
         run: |
           if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::'${VERSION}' is not a vMAJOR.MINOR.PATCH version"
+            echo "::error::'${VERSION}' is not a vMAJOR.MINOR.PATCH tag"
             exit 1
           fi
 
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          # what was released, named rather than left to the event's ref. The
+          # full history comes with it because the tags are what Go reads the
+          # version from and what goreleaser builds the changelog out of
+          ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
 
       # the tag is the version only where Go agrees it is one for this module: a
       # v2 or later tag on a module path with no matching suffix is not, and the
-      # build would quietly stamp a pseudo-version instead and succeed. Nothing
-      # downstream would notice, so it is caught before the tag exists
+      # build would quietly stamp a pseudo-version instead and succeed. The tag
+      # already exists by now, so this fails the run rather than preventing it --
+      # which is still better than a release whose binaries misname themselves
       - name: Check the tag against the module path
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           major="${VERSION%%.*}"
@@ -55,17 +70,6 @@ jobs:
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: go.mod
-
-      # goreleaser builds from this tag, and -buildvcs=true is what puts it in
-      # the binary; the tag has to exist on the commit before the build runs
-      - name: Tag the commit
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          git config user.name  'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "${VERSION}" -m "${VERSION}"
-          git push origin "${VERSION}"
 
       - name: Build and publish
         uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0

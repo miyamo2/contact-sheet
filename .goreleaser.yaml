@@ -52,3 +52,9 @@ changelog:
 release:
   draft: false
   prerelease: auto
+  # the release exists before this runs -- publishing it is what started the
+  # workflow -- so whoever wrote its notes wrote the ones that should stay.
+  # keep-existing is already the default; it is spelled out because the release
+  # existing is the normal case here rather than the exception, and because the
+  # changelog below would otherwise look like it were the one being published
+  mode: keep-existing
