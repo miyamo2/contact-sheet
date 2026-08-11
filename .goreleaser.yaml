@@ -50,11 +50,23 @@ changelog:
       - "^chore:"
 
 release:
-  draft: false
+  # a published release is immutable and takes no assets afterwards, so the
+  # binaries have to be attached while the release is still a draft. This run
+  # stops there: it builds, uploads, and leaves the release for a human to write
+  # notes on and publish. goreleaser drafts every release it creates while it
+  # uploads and undrafts it at the end; this keeps it drafted
+  draft: true
+  # look for the draft rather than for a release at the tag. The tag lookup the
+  # API offers does not answer for drafts, so without this a draft written ahead
+  # of the tag push -- notes first, tag second -- is invisible here and a second
+  # draft is created beside it. Drafts are matched by title, so a draft written
+  # in advance has to be titled with its tag, which is what the release page
+  # fills in for you
+  use_existing_draft: true
   prerelease: auto
-  # the release exists before this runs -- publishing it is what started the
-  # workflow -- so whoever wrote its notes wrote the ones that should stay.
-  # keep-existing is already the default; it is spelled out because the release
-  # existing is the normal case here rather than the exception, and because the
-  # changelog below would otherwise look like it were the one being published
+  # so that a draft written in advance keeps the notes someone meant it to have.
+  # keep-existing is already the default; it is spelled out because the draft
+  # existing is a normal case here rather than an exception, and because the
+  # changelog above would otherwise look like it always wins. It fills in the
+  # body of a draft that has none, which is the other normal case
   mode: keep-existing

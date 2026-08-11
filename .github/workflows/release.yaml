@@ -1,30 +1,43 @@
 name: Release
 
-# Publishing a GitHub Release is what starts a release. The tag it names is the
-# version: the composite action installs the release matching the ref it was
-# pinned to, and the binary reads its own version out of the build information
-# Go stamps in from that same tag. Nothing in the tree records a version, so
-# there is nothing here that can disagree with the tag.
+# Pushing the tag builds it; publishing what the build leaves behind is a
+# separate, human act. The two are apart because a release in this repository is
+# immutable: the moment it is published GitHub freezes it, assets included, and
+# refuses every later upload with `422 Cannot upload assets to an immutable
+# release`. The binaries therefore have to be on the release before anyone
+# publishes it, and a draft is the only release that will still take them.
 #
-# `published` rather than `created`: a release written as a draft first -- which
-# is how notes get written before anyone sees them -- never fires `created`, and
-# `published` covers both that and a release published outright.
+# This ran the other way round until it didn't work -- off `release: published`,
+# attaching the binaries to the release whose publishing started the run -- and
+# under immutable releases every upload in it fails. There is no ordering of
+# that shape that works.
 #
-# The assets land on a release that already exists, which is the one thing this
-# ordering costs: between publishing and the end of this run, the release is
-# there with no binaries on it. goreleaser narrows that window rather than
-# widening it -- it drafts the release while it uploads and publishes it again
-# at the end, so the assets appear all at once -- and that second publish does
-# not start this workflow over, because an event raised by GITHUB_TOKEN does not
-# trigger a workflow run.
+# It cannot be driven by the release event at all, either: saving a draft raises
+# `created`, but Actions does not start workflows for `created`, `edited` or
+# `deleted` on a *draft* release, and `published` is already too late. The tag
+# is the one event a release-in-progress raises that a workflow can see -- and
+# the tag has to exist first regardless, because the binary reads its version
+# out of the build information Go stamps in from it.
+#
+# So the release is: push `vX.Y.Z`, let this run finish, then write the notes on
+# the draft waiting in the Releases tab and publish it. Nothing in the tree
+# records a version, so there is nothing here that can disagree with the tag.
+# The draft is invisible to everyone but the maintainers, which is what closes
+# the window the old ordering left open -- a release nobody can see is never a
+# release with no binaries on it, and by the time it is visible it is complete
+# and frozen that way.
+#
+# Notes written into the draft before the tag is pushed are kept rather than
+# overwritten; see `mode` in .goreleaser.yaml.
 #
 # There is no moving major tag. `main` is what the README points at and what
 # branch protection covers, and a release tag is immutable; a `v1` that every
 # release force-pushes to a new commit would be the one ref here that neither of
 # those protects, and nothing points at it any more.
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -33,21 +46,52 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     steps:
+      # the tag filter above is a glob and cannot say this much; anything under
+      # `v*` that is not a version is a mistake worth naming rather than
+      # building. Nothing has been created yet at this point, so this run is
+      # simply over
       - name: Validate the tag
         env:
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ github.ref_name }}
         run: |
           if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::'${VERSION}' is not a vMAJOR.MINOR.PATCH tag"
             exit 1
           fi
 
+      # a published release at this tag can never take the artifacts this run
+      # would build, so the build is wasted and the failure is worth having up
+      # front. The case that gets here is a draft published before the run that
+      # was filling it had finished; the only way out is another version. Drafts
+      # do not answer this endpoint, so the normal run reads a 404 and continues
+      - name: Refuse a tag that is already published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --location --retry 3 --retry-delay 2 \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output /dev/null --write-out '%{http_code}' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}")"
+          case "${code}" in
+            404) ;;
+            200)
+              echo "::error::${VERSION} is already published, and a published release is immutable -- it will not accept these binaries. Release the next version instead."
+              exit 1
+              ;;
+            *)
+              echo "::error::could not tell whether ${VERSION} is already published (HTTP ${code})"
+              exit 1
+              ;;
+          esac
+
+      # the pushed tag is what this event checked out; the full history comes
+      # with it because the tags are what Go reads the version from and what
+      # goreleaser builds the changelog out of
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          # what was released, named rather than left to the event's ref. The
-          # full history comes with it because the tags are what Go reads the
-          # version from and what goreleaser builds the changelog out of
-          ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
 
       # the tag is the version only where Go agrees it is one for this module: a
@@ -57,7 +101,7 @@ jobs:
       # which is still better than a release whose binaries misname themselves
       - name: Check the tag against the module path
         env:
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           major="${VERSION%%.*}"
@@ -71,10 +115,20 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build and publish
+      # leaves a draft, never a published release; publishing it is the
+      # maintainer's step
+      - name: Build and draft
         uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
         with:
           version: '~> v2'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Say where the release is
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          echo "### ${VERSION} is drafted" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "The binaries are attached to a draft release. Write its notes and publish it: <${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases>" >> "${GITHUB_STEP_SUMMARY}"
