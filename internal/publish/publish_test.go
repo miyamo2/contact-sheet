@@ -2,6 +2,7 @@ package publish
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -171,7 +172,81 @@ func TestPublishRejectsAnEmptySet(t *testing.T) {
 	}
 }
 
-// The remote URL carries the token; a failure must not put it in the log.
+// git prints a remote URL freely -- in `remote -v`, in an error, in the progress
+// line -- so the one thing it must not hold is the token.
+func TestRemoteURLCarriesNoCredentials(t *testing.T) {
+	got := remoteURL("https://github.com/", "owner/repo")
+	if want := "https://github.com/owner/repo.git"; got != want {
+		t.Errorf("remoteURL = %q, want %q", got, want)
+	}
+}
+
+// scratchRepo is an initialised repository standing in for the one Publish
+// builds, so the config it writes can be read back with git itself.
+func scratchRepo(t *testing.T) string {
+	t.Helper()
+	work := t.TempDir()
+	if out, err := exec.Command("git", "-C", work, "init", "-q", "-b", "contact-sheet").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	return work
+}
+
+// The token goes in as a header on the scratch repository's config, scoped to
+// the server. Reading it back with git is the part worth asserting: it proves
+// the appended section is where git looks for it and parses as git config.
+func TestWriteAuthConfigScopesTheHeaderToTheServer(t *testing.T) {
+	work := scratchRepo(t)
+	const token = "ghs_supersecrettokenvalue"
+
+	if err := writeAuthConfig(work, "https://github.com", token); err != nil {
+		t.Fatalf("writeAuthConfig: %v", err)
+	}
+
+	want := "AUTHORIZATION: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
+	if got := gitOut(t, work, "config", "--get", "http.https://github.com/.extraheader"); got != want {
+		t.Errorf("extraheader = %q, want %q", got, want)
+	}
+	// --get-urlmatch answers the question that matters: would git send this
+	// header to the URL the push goes to
+	remote := remoteURL("https://github.com", "owner/repo")
+	if got := gitOut(t, work, "config", "--get-urlmatch", "http.extraheader", remote); got != want {
+		t.Errorf("the header does not apply to %s: %q", remote, got)
+	}
+	// a header for github.com is not one to send to anywhere else
+	if out, err := exec.Command("git", "-C", work, "config", "--get-urlmatch",
+		"http.extraheader", "https://elsewhere.example/owner/repo.git").Output(); err == nil && len(out) > 0 {
+		t.Errorf("the header would be sent to another host: %s", out)
+	}
+	// the config is the only copy, and the temp directory it is in goes away
+	// with the run; the token still has no business sitting there in the clear
+	config, err := os.ReadFile(filepath.Join(work, ".git", "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(config), token) {
+		t.Errorf("the token is in the config verbatim:\n%s", config)
+	}
+}
+
+// The tests here, and anyone running the binary against a directory, push to a
+// path rather than a URL. There is nothing to authenticate to.
+func TestWriteAuthConfigSkipsANonHTTPRemote(t *testing.T) {
+	work := scratchRepo(t)
+	if err := writeAuthConfig(work, filepath.Join(t.TempDir(), "remote"), "ghs_token"); err != nil {
+		t.Fatalf("writeAuthConfig: %v", err)
+	}
+	config, err := os.ReadFile(filepath.Join(work, ".git", "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(config), "extraheader") {
+		t.Errorf("wrote a credential for a local path:\n%s", config)
+	}
+}
+
+// The push is the step that reaches the network, and a failed one is the step
+// whose message reaches a pull request comment.
 func TestPublishErrorDoesNotLeakTheToken(t *testing.T) {
 	o := options(t)
 	o.Token = "ghs_supersecrettokenvalue"

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -326,5 +327,63 @@ func TestForkTokenSummaryNamesWhereToMove(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("the summary does not mention %q:\n%s", want, got)
 		}
+	}
+}
+
+// git's stderr on a rejected push is several lines, and the default template
+// renders Failure inside a code span that the first newline would end. What
+// comes out has to be one line with no backtick in it, whatever went in.
+func TestFailureTextFlattensGitStderr(t *testing.T) {
+	err := errors.New("git push failed: remote: Permission to owner/repo.git denied.\n" +
+		"fatal: unable to access `https://github.com/owner/repo.git/`: The requested URL returned error: 403")
+
+	got := failureText(err)
+	if strings.ContainsAny(got, "\n\r`") {
+		t.Errorf("a newline or a backtick survived: %q", got)
+	}
+	for _, want := range []string{"Permission to owner/repo.git denied", "403"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q dropped %q", got, want)
+		}
+	}
+}
+
+// A remote answering with a page of `remote:` lines is not a comment.
+func TestFailureTextIsCapped(t *testing.T) {
+	got := failureText(errors.New(strings.Repeat("remote: no ", 500)))
+	if n := len([]rune(got)); n > failureLimit+1 {
+		t.Errorf("%d runes, want at most %d plus the ellipsis", n, failureLimit)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("a truncated message does not say so: %q", got)
+	}
+}
+
+// git said nothing at all -- a signal, say. An empty code span reads as a bug in
+// the action rather than as a failed push.
+func TestFailureTextNeverRendersEmpty(t *testing.T) {
+	if got := failureText(errors.New(" \n\t` `\n ")); got == "" {
+		t.Error("failureText returned nothing to put in the comment")
+	}
+}
+
+func TestOneLine(t *testing.T) {
+	for _, tt := range []struct {
+		name, in, want string
+		limit          int
+	}{
+		{name: "collapses runs", in: "a\n\n  b\tc", want: "a b c"},
+		{name: "trims the ends", in: "  padded  ", want: "padded"},
+		{name: "drops backticks", in: "unable to access `x`", want: "unable to access x"},
+		{name: "drops control characters", in: "red\x1b[31mtext\x00", want: "red [31mtext"},
+		{name: "leaves a short line alone", in: "remote hung up", want: "remote hung up", limit: 200},
+		{name: "does not split a rune", in: strings.Repeat("あ", 10), want: "あああああ…", limit: 5},
+		{name: "no cut on the space", in: "ab cd ef", want: "ab cd…", limit: 6},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := oneLine(tt.in, tt.limit); got != tt.want {
+				t.Errorf("oneLine(%q, %d) = %q, want %q", tt.in, tt.limit, got, tt.want)
+			}
+		})
 	}
 }

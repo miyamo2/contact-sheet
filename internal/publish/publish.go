@@ -24,6 +24,7 @@ package publish
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -42,7 +43,9 @@ type Options struct {
 	// Ref is the full ref to push to, e.g. refs/contact-sheet/pr-42/1234.1.
 	Ref        string
 	Repository string
-	Token      string
+	// Token authenticates the push. It never reaches the remote URL or a
+	// command line -- see writeAuthConfig.
+	Token string
 	// ServerURL is where the push goes; GITHUB_SERVER_URL on GHES.
 	ServerURL string
 	Message   string
@@ -87,9 +90,10 @@ func Publish(ctx context.Context, o Options) (string, error) {
 		}
 	}
 
-	remote := fmt.Sprintf("%s/%s.git", strings.TrimSuffix(o.ServerURL, "/"), o.Repository)
-	remote = strings.Replace(remote, "://", "://x-access-token:"+o.Token+"@", 1)
-	if _, err := git(ctx, work, "remote", "add", "origin", remote); err != nil {
+	if err := writeAuthConfig(work, o.ServerURL, o.Token); err != nil {
+		return "", err
+	}
+	if _, err := git(ctx, work, "remote", "add", "origin", remoteURL(o.ServerURL, o.Repository)); err != nil {
 		return "", err
 	}
 
@@ -120,12 +124,60 @@ func Publish(ctx context.Context, o Options) (string, error) {
 	return strings.TrimSpace(head), nil
 }
 
-// git runs a command and returns stdout. The remote url carries the token, so
-// no error here echoes the arguments; Actions masks GITHUB_TOKEN in logs either
-// way, but a redacted message is not something to rely on the runner for.
+// remoteURL is the address the push goes to, and it holds no credential: the
+// token travels in a header this package writes into the scratch repository's
+// config instead. A URL with nothing secret in it is one git may print, echo
+// into an error, or leave in a remote's configuration.
+func remoteURL(serverURL, repository string) string {
+	return fmt.Sprintf("%s/%s.git", strings.TrimSuffix(serverURL, "/"), repository)
+}
+
+// writeAuthConfig hands git the token by a route nothing else on the machine can
+// read it from. In the remote URL it would be one `git remote -v` or one
+// anonymise-me-if-you-please error message away from the outside; as `git -c
+// http.extraheader=…` or `git config <key> <value>` it would sit in a command
+// line for as long as the process lives, and /proc shows a command line to every
+// process on the runner. What is left is the file: the config of a repository in
+// a private temporary directory, which the deferred RemoveAll takes away with
+// everything else.
+//
+// The header is scoped to the server it authenticates to, so a redirect
+// elsewhere does not carry it. A remote that is not http(s) -- a local path, as
+// the tests push to -- takes no credential at all.
+func writeAuthConfig(work, serverURL, token string) error {
+	base := strings.TrimSuffix(serverURL, "/")
+	overHTTP := strings.HasPrefix(base, "https://") || strings.HasPrefix(base, "http://")
+	if token == "" || !overHTTP {
+		return nil
+	}
+	// basic auth in a header rather than credentials in the URL, the form
+	// actions/checkout uses. The value is base64 of an ASCII pair, so none of
+	// git's config quoting applies to it.
+	header := "AUTHORIZATION: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
+	section := fmt.Sprintf("\n[http %q]\n\textraheader = %s\n", base+"/", header)
+
+	file, err := os.OpenFile(filepath.Join(work, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if _, err := io.WriteString(file, section); err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+// git runs a command and returns stdout. stderr becomes the error: it is git's
+// own words about what went wrong, and the caller shapes it before it goes
+// anywhere a person reads. Nothing here carries the token -- not the arguments,
+// not the remote URL -- so a message that escapes the log is only ever a message.
+//
+// GIT_TERMINAL_PROMPT stops a rejected push from waiting on a username: with the
+// credential out of the URL, git would otherwise have somewhere to ask.
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

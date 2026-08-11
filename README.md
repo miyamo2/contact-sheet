@@ -193,6 +193,12 @@ for pull requests, under `refs/pull/*`.
 The commit under that ref has no parent, so what gets pushed is the images and
 none of your repository's history.
 
+The push authenticates with an `http.extraheader` written into the config of the
+throwaway repository the commit is built in, not with a token in the remote URL
+and not on a command line. A URL travels: into `git remote -v`, into whatever
+git prints when a push is refused, and from there into a comment. A command line
+is worse, being readable from `/proc` for as long as the process runs.
+
 `ref-namespace` moves that hierarchy, and it is checked before the run collects
 anything — a namespace the push would choke on is worth hearing about before the
 images are gathered and copied, not after. It has to start with `refs/`, name
@@ -475,6 +481,11 @@ Images      []Image         // .Path .Dir .Name .Ext .URL .Match
 Total
 Failure
 ```
+
+`Failure` is set only when `State` is `publish-failed`, and it is the one field
+whose words are not the action's — it is what git said. It arrives collapsed to
+one line, with backticks removed and a length cap, so that a template may put it
+in a code span without a multi-line `remote:` answer breaking out of one.
 
 `.Succeeded` and `.Published` are shorthands for the two comparisons templates
 make most. An image's `.Match` holds the layout's captures, and `field img "x"`
