@@ -36,6 +36,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      # the tag is the version only where Go agrees it is one for this module: a
+      # v2 or later tag on a module path with no matching suffix is not, and the
+      # build would quietly stamp a pseudo-version instead and succeed. Nothing
+      # downstream would notice, so it is caught before the tag exists
+      - name: Check the tag against the module path
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          major="${VERSION%%.*}"
+          module="$(sed -n 's/^module //p' go.mod)"
+          if [[ "${major}" != v0 && "${major}" != v1 && "${module}" != */"${major}" ]]; then
+            echo "::error::${VERSION} needs the module path to end in /${major}; go.mod says ${module}"
+            exit 1
+          fi
+
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: go.mod
