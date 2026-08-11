@@ -112,6 +112,14 @@ func run(ctx context.Context) error {
 		return errors.New("--path is required")
 	}
 
+	// checked here, ahead of the collecting and the copying, because the value
+	// is not used until the push at the far end of the run
+	namespace, err := checkRefNamespace(cfg.refNamespace)
+	if err != nil {
+		return err
+	}
+	cfg.refNamespace = namespace
+
 	layout, err := collect.Compile(cfg.layout)
 	if err != nil {
 		return err
@@ -233,7 +241,7 @@ func run(ctx context.Context) error {
 	}
 
 	if collected.Total > 0 {
-		ref := fmt.Sprintf("%s/pr-%d/%s", strings.TrimSuffix(cfg.refNamespace, "/"), pull.Number, runKey)
+		ref := fmt.Sprintf("%s/pr-%d/%s", cfg.refNamespace, pull.Number, runKey)
 		switch {
 		case cfg.dryRun:
 			view.State = render.StatePublished
