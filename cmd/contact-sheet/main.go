@@ -48,6 +48,33 @@ type config struct {
 	imageWidth    int
 	pullNumber    int
 	dryRun        bool
+	allowFork     bool
+}
+
+// skipReason says why a pull request is not one to comment on, or "" when it
+// is.
+//
+// A fork is the interesting case. The action skips one by default not because
+// of anything about the pull request but because of the token it is usually
+// holding: a `pull_request` run on a fork's pull request gets a read-only
+// GITHUB_TOKEN, which can neither push the ref nor write the comment, and
+// failing halfway through is a worse answer than saying so up front. A workflow
+// that holds the base repository's token instead -- an issue_comment or
+// workflow_run run, or one handed a PAT -- has none of that problem, and
+// --allow-fork is how it says so.
+//
+// What --allow-fork does not do is make running a fork's code safe. That is the
+// calling workflow's problem, and the reason the one in this repository asks a
+// maintainer to type the command first.
+func skipReason(pull *ghapi.PullRequest, allowFork bool) string {
+	switch {
+	case pull.State != "open":
+		return fmt.Sprintf("#%d is %s; leaving it alone", pull.Number, pull.State)
+	case pull.FromFork() && !allowFork:
+		return fmt.Sprintf("#%d comes from a fork, whose token can neither push nor comment; "+
+			"pass --allow-fork if this run's token is the base repository's", pull.Number)
+	}
+	return ""
 }
 
 func main() {
@@ -120,14 +147,8 @@ func run(ctx context.Context) error {
 			logf("%s belongs to no pull request; nothing to comment on", short(sha))
 			return nil
 		}
-		if pull.State != "open" {
-			logf("#%d is %s; leaving it alone", pull.Number, pull.State)
-			return nil
-		}
-		if pull.FromFork() {
-			// a fork's GITHUB_TOKEN is read-only: it can neither push the ref
-			// nor write the comment
-			logf("#%d comes from a fork; skipping", pull.Number)
+		if reason := skipReason(pull, cfg.allowFork); reason != "" {
+			logf("%s", reason)
 			return nil
 		}
 	}

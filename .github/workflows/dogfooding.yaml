@@ -14,10 +14,10 @@ name: Dogfooding
 # rule itself is not in this repository -- it is a required status check named
 # `dogfooding` on the default branch, added under Settings > Rules (or
 # `gh api -X PUT repos/:owner/:repo/branches/main/protection`), and this file
-# only feeds it. Two consequences worth stating: pushing a commit clears the
+# only feeds it. One consequence worth stating: pushing a commit clears the
 # result, because the status belongs to the commit that was built and not to the
-# pull request; and a fork's pull request can never satisfy the check, because
-# the command refuses a fork, so merging one is an administrator's override.
+# pull request, so the last word on a pull request is always a run of its final
+# commit.
 #
 # Four things worth knowing before reading further:
 #
@@ -29,9 +29,14 @@ name: Dogfooding
 #     reports on it, and that job checks nothing out.
 #   - the command is restricted to a code owner or a maintainer because the job
 #     builds and runs the pull request's code with a token that can write to
-#     this repository. A pull request from a fork is refused outright -- the
-#     action skips one anyway, and checking a fork's head out here is what the
-#     restriction exists to prevent.
+#     this repository. A fork's pull request is run on the same terms as any
+#     other, which is the whole weight the gate carries: anyone may open one, so
+#     what stands between a stranger's code and this repository's token is a
+#     maintainer having read the diff and typed the command. Read one before
+#     running it, and read it again if the branch moved -- the gate resolves the
+#     head when the command arrives, and the result is reported for that commit
+#     alone, so a push after the fact invalidates the check rather than
+#     inheriting it.
 #   - one comment id and one ref namespace per template. The action deletes the
 #     comments its id owns that the run did not produce, so a shared id would
 #     have each job deleting its siblings' comments; and the ref it pushes to is
@@ -182,8 +187,15 @@ jobs:
           fi
 
           [[ "${pull[0]}" == open ]] || deny "#${PULL} is ${pull[0]}; leaving it alone"
-          [[ "${pull[1]}" == "${REPOSITORY}" ]] \
-            || deny "#${PULL} comes from ${pull[1]:-a deleted fork}; the action skips a fork's pull request, and this workflow will not check one out"
+
+          # a fork is run rather than refused, so that a contributor without
+          # push access can reach a mergeable state without a maintainer
+          # overriding the check for them. What makes that acceptable is the
+          # gate above, and it is worth being plain in the log about what the
+          # gate just decided
+          if [[ "${pull[1]}" != "${REPOSITORY}" ]]; then
+            echo "::warning::#${PULL} comes from ${pull[1]:-a deleted fork}; @${COMMENTER} asked for its code to be built and run here"
+          fi
 
           echo "allowed=true" >> "${GITHUB_OUTPUT}"
           echo "head-sha=${pull[2]}" >> "${GITHUB_OUTPUT}"
@@ -316,6 +328,11 @@ jobs:
           # alongside the real ones, and one `git push origin :ref` reclaims them
           ref-namespace: refs/contact-sheet/dogfooding/${{ steps.inputs.outputs.key }}
           pull-number: ${{ github.event.issue.number }}
+          # the action skips a fork's pull request because a `pull_request`
+          # run's token could not push or comment for one. This run's token is
+          # this repository's, whatever the head is, so that reason does not
+          # apply and the gate above has already answered the one that does
+          allow-fork: 'true'
 
   # One status for a matrix that renders one template per job: what branch
   # protection can require is a context, and a context is either reported or it

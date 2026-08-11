@@ -115,16 +115,28 @@ $ git push origin :refs/contact-sheet/pr-42/12345678.1
 | [git-fetch, "Configured Remote-tracking Branches"](https://git-scm.com/docs/git-fetch#_configured_remote_tracking_branches) | the default refspec — why `refs/heads/*` arrives and nothing else does |
 | [git-push, `<refspec>`](https://git-scm.com/docs/git-push#Documentation/git-push.txt-ltrefspecgt) | the `HEAD:refs/…` form, and deleting a ref with a leading colon |
 
-### Two things this cannot do
+### Two limits worth knowing
 
 **Private repositories.** `raw.githubusercontent.com` serves a private
 repository only through a short-lived token URL, which a comment cannot load. On
 a private repository the action skips the push and writes a comment saying where
 the images are instead. Nothing else about the run changes.
 
-**Pull requests from forks.** A fork's `GITHUB_TOKEN` is read-only: it can
-neither push the ref nor write the comment. The action detects this and exits
-without doing anything.
+**Pull requests from forks.** On a `pull_request` run, a fork's `GITHUB_TOKEN`
+is read-only: it can neither push the ref nor write the comment. The action
+detects this and exits without doing anything, rather than collecting the images
+and failing on the push.
+
+That is a fact about the token, not about the pull request, so a workflow
+holding a token that _can_ write says so with `allow-fork: true` and gets the
+comment. The token has to come from somewhere other than the fork's run — an
+`issue_comment` command, a `workflow_run` job picking up an artifact the fork's
+run uploaded, or a PAT. Note what that implies about the first of those: a
+workflow that checks a fork's head out is building and running a stranger's code
+with a token that can write to your repository, so it needs a gate of its own —
+a command only a maintainer may issue, an environment with a required reviewer,
+or a label. `allow-fork` decides whether the comment gets written; it decides
+nothing about whether writing it was safe.
 
 ## How this compares
 
@@ -322,6 +334,7 @@ would have posted, so a template can be iterated on locally in seconds.
 | `image-width` | `360` | width on each `<img>`; `0` omits it |
 | `pull-number` | resolved from the commit | pull request to comment on |
 | `dry-run` | `false` | push nothing, comment nothing |
+| `allow-fork` | `false` | comment on a fork's pull request; needs a token that is not the fork's |
 | `github-token` | `github.token` | needs `contents: write` and `pull-requests: write` |
 
 ## Outputs
