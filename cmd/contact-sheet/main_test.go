@@ -81,8 +81,6 @@ func TestLoadTemplateRejectsHugeBody(t *testing.T) {
 	}
 }
 
-// The key names the comment, so a remote template and a local copy of it have
-// to land on the same one.
 // Skipping is how a run says "the token I have cannot finish this", so the fork
 // case turns on the flag rather than on the pull request alone -- and no flag
 // makes a closed pull request worth commenting on.
@@ -120,6 +118,8 @@ func TestSkipReason(t *testing.T) {
 	}
 }
 
+// The key names the comment, so a remote template and a local copy of it have
+// to land on the same one.
 func TestTemplateKey(t *testing.T) {
 	for ref, want := range map[string]string{
 		"templates/gallery.tmpl":                                    "gallery",
@@ -311,6 +311,18 @@ func TestSummarizeWithoutActions(t *testing.T) {
 func TestForkSummaryNamesTheFix(t *testing.T) {
 	got := fmt.Sprintf(forkSummary, 42)
 	for _, want := range []string{"#42", "allow-fork: true", "read-only", "#pull-requests-from-forks"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the summary does not mention %q:\n%s", want, got)
+		}
+	}
+}
+
+// The other fork summary: allow-fork was set and the token could not write
+// anyway. Naming the workflows that hold one matters more than naming the
+// failure, because the reader has already decided they want the comment.
+func TestForkTokenSummaryNamesWhereToMove(t *testing.T) {
+	got := fmt.Sprintf(forkTokenSummary, 42, "miyamo2/blog")
+	for _, want := range []string{"#42", "miyamo2/blog", "workflow_run", "issue_comment"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the summary does not mention %q:\n%s", want, got)
 		}

@@ -89,7 +89,10 @@ inputs:
       ref nor write the comment. Set this only where github-token can write to
       the base repository -- an `issue_comment` or `workflow_run` workflow, or a
       PAT -- and only where something has decided that running that pull
-      request's code is acceptable.
+      request's code is acceptable. The first of those is checked: a run whose
+      token turns out not to be writable skips and says so, rather than
+      collecting the images and stopping on the push. The second is not, and
+      cannot be.
     required: false
     default: 'false'
   github-token:

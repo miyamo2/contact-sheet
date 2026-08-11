@@ -257,10 +257,17 @@ decides whether the comment gets written; it decides nothing about whether
 writing it was safe.** The recommended setup earns it differently: it never runs
 the fork's code in the job holding the token, so there is nothing to gate.
 
-Left unset on a fork's pull request, the run stays green, `state` comes back
-`skipped`, and the reason and the fix go to the run's page and its summary —
-not only the log, because a pull request with no comment on it is otherwise a
-mystery.
+Only half of what it says can be checked, and that half is. `allow-fork` claims
+two things — that the token can write, and that running this code was somebody's
+decision — and the first is a question GitHub will answer. So a run that sets it
+in a `pull_request` job, where the token never can write, skips and names the
+workflows that hold one, instead of collecting the images and stopping on a 403
+from `git push`. The second claim is the one that matters and the one nothing
+can verify; it stays yours.
+
+Either way the run stays green, `state` comes back `skipped`, and the reason and
+the fix go to the run's page and its summary — not only the log, because a pull
+request with no comment on it is otherwise a mystery.
 
 ### What a fork gets to decide
 

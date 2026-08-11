@@ -177,6 +177,27 @@ func run(ctx context.Context) error {
 			}
 			return skipped(collected.Total, pull.Number)
 		}
+
+		// --allow-fork asserts that this run holds the base repository's token
+		// rather than the fork's. Asking once whether that is true costs one
+		// request and turns the alternative -- collect everything, then a 403
+		// from git push -- into a skip that names what is wrong. Not being able
+		// to ask is no reason to stop: the run was authorised either way, and
+		// the push reports the truth soon enough
+		if pull.FromFork() && cfg.allowFork {
+			switch writable, err := client.Writable(ctx); {
+			case err != nil:
+				logf("could not check whether this token can write to %s: %v", repository, err)
+			case !writable:
+				logf("#%d: allow-fork is set, but this token cannot write to %s; skipping",
+					pull.Number, repository)
+				notice(fmt.Sprintf(
+					"No comment on #%d: allow-fork is set, but this job's token cannot write to %s.",
+					pull.Number, repository))
+				summarize(fmt.Sprintf(forkTokenSummary, pull.Number, repository))
+				return skipped(collected.Total, pull.Number)
+			}
+		}
 	}
 
 	view := render.Context{
@@ -447,6 +468,23 @@ the permissions block asks for, and no secret of yours is passed to it either �
 so this is skipped by default rather than failed halfway through. Where the
 token is the base repository's, an ` + "`issue_comment`" + ` or ` + "`workflow_run`" + ` run,
 set ` + "`allow-fork: true`" + ` to say so — see
+[Pull requests from forks](https://github.com/miyamo2/contact-sheet#pull-requests-from-forks).
+`
+
+// forkTokenSummary is the other half: allow-fork was set, and the claim it
+// makes about the token turned out not to hold. Saying which workflow can hold
+// one matters more than saying this one cannot, because the reader has already
+// decided they want the comment.
+const forkTokenSummary = `### Contact Sheet
+
+No comment on #%d: ` + "`allow-fork`" + ` is set, but this job's token cannot write
+to %s.
+
+A ` + "`pull_request`" + ` run on a fork's pull request never gets a writable token,
+whatever the permissions block asks for. ` + "`allow-fork`" + ` does not change that —
+it says the token came from somewhere else, and here it did not. Move the step
+to a workflow that holds this repository's token: a ` + "`workflow_run`" + ` job
+picking up the artifact, or an ` + "`issue_comment`" + ` command — see
 [Pull requests from forks](https://github.com/miyamo2/contact-sheet#pull-requests-from-forks).
 `
 
