@@ -3,7 +3,97 @@
 The images a CI run produced, in the pull request comment. A table of
 thumbnails, rewritten in place on every push.
 
-Add the step after whatever produces the images:
+## Get Started
+
+Two ways in, and one question decides it: can a pull request on this repository
+come from a fork?
+
+### Recommended — two workflows
+
+**This one is fork safe.** A contributor's pull request gets its contact sheet
+like anyone else's, and no token that can write to your repository is ever in
+the same job as code from the fork. The capture runs where GitHub caps it — a
+read-only token, no secrets — and hands over image bytes; the comment is written
+by a workflow of yours, off your default branch, which never fetches the fork's
+head.
+
+It covers your own branches in the same pass, so this is the only setup a
+repository needs, fork or not.
+
+```yaml
+# .github/workflows/e2e.yaml — runs the pull request's code
+name: E2E
+on: pull_request
+
+permissions:
+  contents: read   # for the checkout; uploading an artifact needs no permission
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}   # a failed run is when the images matter most
+        with:
+          name: captures
+          path: e2e/captures
+```
+
+```yaml
+# .github/workflows/contact-sheet.yaml — runs yours
+name: Contact Sheet
+on:
+  workflow_run:
+    workflows: [E2E]     # matched against the name: above, not the file name
+    types: [completed]
+
+permissions:
+  actions: read          # reads the artifact off the run that triggered this
+  contents: write        # pushes the images to refs/contact-sheet/*
+  pull-requests: write   # writes the comment
+
+jobs:
+  comment:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: captures
+          path: captures
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - uses: miyamo2/contact-sheet@main
+        with:
+          path: captures
+          sha: ${{ github.event.workflow_run.head_sha }}
+          status: ${{ github.event.workflow_run.conclusion }}
+          allow-fork: 'true'
+```
+
+Like every event that is not tied to a code ref, `workflow_run` resolves the
+workflow from your default branch — so the pull request that adds these two
+files will run `E2E` and no comment will appear. It starts working when it is
+merged.
+
+Four things are worth knowing before you copy it:
+
+| | |
+| --- | --- |
+| `allow-fork` | without it a fork's pull request is skipped, because the action assumes the read-only token a `pull_request` run would have. This job's token is yours, and this is how it says so |
+| `sha` | that job stands on your default branch, so `GITHUB_SHA` is not the commit under review. This input is what the status line shows and what the pull request is resolved from |
+| no checkout | nothing here fetches the fork's head, and nothing should. If you need a custom template, `actions/checkout` in this workflow gives you *your* default branch, which is where it belongs |
+| `status` | `workflow_run.conclusion` is the triggering run's outcome as a whole, not one step's |
+
+[Pull requests from forks](#pull-requests-from-forks) has the reasoning, and
+what a fork does and does not get to decide.
+
+### The short way — one step
+
+If nothing will ever arrive from a fork — an internal repository, a personal one
+— it is one step after whatever produces the images:
 
 ```yaml
 - name: Capture
@@ -17,13 +107,19 @@ Add the step after whatever produces the images:
     status: ${{ steps.capture.outcome }}
 ```
 
-Then grant the two permissions the job needs:
+with the two permissions that job needs:
 
 ```yaml
 permissions:
   contents: write        # pushes the images to refs/contact-sheet/*
   pull-requests: write   # writes the comment
 ```
+
+Faced with a fork's pull request this does nothing at all: the token it holds
+cannot write, so the action skips rather than collecting the images and failing
+on the push. The run stays green, `state` comes back `skipped`, and the reason
+is put on the run's page — not only in the log — because a pull request with no
+comment on it is otherwise a mystery. There is still no comment.
 
 ## What the comment looks like
 
@@ -115,28 +211,74 @@ $ git push origin :refs/contact-sheet/pr-42/12345678.1
 | [git-fetch, "Configured Remote-tracking Branches"](https://git-scm.com/docs/git-fetch#_configured_remote_tracking_branches) | the default refspec — why `refs/heads/*` arrives and nothing else does |
 | [git-push, `<refspec>`](https://git-scm.com/docs/git-push#Documentation/git-push.txt-ltrefspecgt) | the `HEAD:refs/…` form, and deleting a ref with a leading colon |
 
-### Two limits worth knowing
+### What this cannot do
 
 **Private repositories.** `raw.githubusercontent.com` serves a private
 repository only through a short-lived token URL, which a comment cannot load. On
 a private repository the action skips the push and writes a comment saying where
 the images are instead. Nothing else about the run changes.
 
-**Pull requests from forks.** On a `pull_request` run, a fork's `GITHUB_TOKEN`
-is read-only: it can neither push the ref nor write the comment. The action
-detects this and exits without doing anything, rather than collecting the images
-and failing on the push.
+## Pull requests from forks
 
-That is a fact about the token, not about the pull request, so a workflow
-holding a token that _can_ write says so with `allow-fork: true` and gets the
-comment. The token has to come from somewhere other than the fork's run — an
-`issue_comment` command, a `workflow_run` job picking up an artifact the fork's
-run uploaded, or a PAT. Note what that implies about the first of those: a
-workflow that checks a fork's head out is building and running a stranger's code
-with a token that can write to your repository, so it needs a gate of its own —
-a command only a maintainer may issue, an environment with a required reviewer,
-or a label. `allow-fork` decides whether the comment gets written; it decides
-nothing about whether writing it was safe.
+Why the [recommended setup](#recommended--two-workflows) is two files rather
+than one, and why it passes `allow-fork`.
+
+A workflow a fork's pull request triggered holds a read-only `GITHUB_TOKEN`.
+GitHub caps it there because that workflow is running the fork's code — and for
+the same reason it withholds every secret, so a dedicated PAT or a GitHub App in
+`secrets` is not a way round it either. Nothing in that job can push the ref or
+write the comment.
+
+What lifts the cap is not a permission but a different job. `workflow_run` runs
+the default branch's copy of a workflow, which is yours, so it gets your
+repository's token and your secrets. Splitting the run in two puts the fork's
+code and the write token in separate jobs that never overlap, and the only thing
+that crosses between them is the artifact.
+
+That crossing is safe because an artifact is bytes. What would not be safe is
+checking out `workflow_run.head_sha` in the second workflow and building it —
+`npm ci` alone is enough, `postinstall` runs — because that puts fork code back
+next to the write token, which is the whole thing the split exists to prevent.
+
+### `allow-fork`
+
+The action skips a fork's pull request by default, and collecting the images
+only to fail on the push is a worse answer than saying so up front. But that
+default is about the token, not the pull request — so a workflow holding one
+that _can_ write says so with `allow-fork: true` and gets the comment. The token
+has to come from somewhere other than the fork's run: a `workflow_run` job
+picking up the artifact, an `issue_comment` command, or a PAT.
+
+Note what the second of those implies. A workflow that checks a fork's head out
+is building and running a stranger's code with a token that can write to your
+repository, so it needs a gate of its own — a command only a maintainer may
+issue, an environment with a required reviewer, or a label. **`allow-fork`
+decides whether the comment gets written; it decides nothing about whether
+writing it was safe.** The recommended setup earns it differently: it never runs
+the fork's code in the job holding the token, so there is nothing to gate.
+
+Only half of what it says can be checked, and that half is. `allow-fork` claims
+two things — that the token can write, and that running this code was somebody's
+decision — and the first is a question GitHub will answer. So a run that sets it
+in a `pull_request` job, where the token never can write, skips and names the
+workflows that hold one, instead of collecting the images and stopping on a 403
+from `git push`. The second claim is the one that matters and the one nothing
+can verify; it stays yours.
+
+Either way the run stays green, `state` comes back `skipped`, and the reason and
+the fix go to the run's page and its summary — not only the log, because a pull
+request with no comment on it is otherwise a mystery.
+
+### What a fork gets to decide
+
+Images and file names, and nothing else — but it does decide those completely.
+The workflow file a `pull_request` run executes is the pull request's own copy,
+so the artifact's contents, names and size are the contributor's to choose.
+
+The images are pushed to a ref of yours, which costs storage. The names are
+written into the comment, which is where the care goes: a file whose name would
+end the table cell, code span or tag a template put it in is not collected — see
+[Names that cannot go in a comment](#names-that-cannot-go-in-a-comment).
 
 ## How this compares
 
@@ -200,6 +342,26 @@ captures/mobile-chromium/menu-modal.png           ->  screen=menu-modal    theme
 
 and a template then groups by `dir` and columns by `theme`. Go's regexp syntax
 uses `(?P<name>...)`, not `(?<name>...)`.
+
+### Names that cannot go in a comment
+
+One more file is skipped whatever the layout says: one whose path holds a
+control character, invalid UTF-8, or any of
+
+```
+` | < > " \ [ ]
+```
+
+Each of those ends the table cell, code span, tag or link a template wrote the
+name into, and starts something else. The log names the files this leaves out,
+so they do not go missing quietly.
+
+They are refused rather than escaped because the right escaping depends on where
+the template puts the name, and that is the template author's decision, not the
+action's. It matters most on [a pull request from a
+fork](#pull-requests-from-forks), where the names were chosen by whoever opened
+it — a space, a `#`, or a name in any script are all still fine, and are escaped
+properly where they land in a URL.
 
 ## Writing the comment
 
@@ -332,6 +494,7 @@ would have posted, so a template can be iterated on locally in seconds.
 | `ref-namespace` | `refs/contact-sheet` | must be outside `refs/heads/*` |
 | `row-label` | `file name` | header of the first column of a `table` |
 | `image-width` | `360` | width on each `<img>`; `0` omits it |
+| `sha` | `GITHUB_SHA` | commit the images belong to; a `workflow_run` job wants `github.event.workflow_run.head_sha` |
 | `pull-number` | resolved from the commit | pull request to comment on |
 | `dry-run` | `false` | push nothing, comment nothing |
 | `allow-fork` | `false` | comment on a fork's pull request; needs a token that is not the fork's |
@@ -340,6 +503,21 @@ would have posted, so a template can be iterated on locally in seconds.
 ## Outputs
 
 `state`, `total`, `ref`, `commit`, `comments`, `pull`.
+
+`state` is the one to branch on:
+
+| | |
+| --- | --- |
+| `published` | images were collected and pushed; `ref`, `commit` and `comments` are set |
+| `publish-failed` | images were collected, the push did not work, and the comment says so |
+| `empty` | nothing under `path` matched |
+| `skipped` | the run ended without a comment: no pull request on this commit, one that is not open, or one from a fork this token cannot write to |
+
+A `skipped` run is a green one. The reason is in the log, and the fork case —
+the one you probably did not mean — also writes a notice and a run summary
+naming the fix, because a job that passed and did nothing otherwise looks
+exactly like a job that worked. The first three are the states a template sees;
+`skipped` ends the run before there is anything to render.
 
 ## License
 

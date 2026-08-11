@@ -45,6 +45,7 @@ type config struct {
 	status        string
 	refNamespace  string
 	rowLabel      string
+	sha           string
 	imageWidth    int
 	pullNumber    int
 	dryRun        bool
@@ -113,9 +114,23 @@ func run(ctx context.Context) error {
 		return err
 	}
 	logf("collected %d images for %d template(s)", collected.Total, len(templates))
+	if n := len(collected.Skipped); n > 0 {
+		// naming a few is enough to recognise the pattern; a directory holding
+		// thousands of them should not take the log with it
+		shown := collected.Skipped
+		if len(shown) > 5 {
+			shown = shown[:5]
+		}
+		logf("skipped %d file(s) whose name cannot be written into a comment: %q", n, shown)
+	}
 
 	repository := env("GITHUB_REPOSITORY", "")
-	sha := env("GITHUB_SHA", strings.Repeat("0", 40))
+	// a workflow_run job stands on the default branch, so the commit the images
+	// belong to is one only the workflow knows; GITHUB_SHA is right everywhere else
+	sha := cfg.sha
+	if sha == "" {
+		sha = env("GITHUB_SHA", strings.Repeat("0", 40))
+	}
 	serverURL := env("GITHUB_SERVER_URL", "https://github.com")
 	apiURL := env("GITHUB_API_URL", "https://api.github.com")
 	rawURL := env("GITHUB_RAW_URL", "https://raw.githubusercontent.com")
@@ -144,12 +159,44 @@ func run(ctx context.Context) error {
 			return err
 		}
 		if pull == nil {
+			// a push to a branch with no pull request open on it. Expected
+			// rather than wrong, so it gets no annotation
 			logf("%s belongs to no pull request; nothing to comment on", short(sha))
-			return nil
+			return skipped(collected.Total, 0)
 		}
 		if reason := skipReason(pull, cfg.allowFork); reason != "" {
 			logf("%s", reason)
-			return nil
+			// the fork case is worth saying out loud, and only that one: a
+			// green job that quietly did nothing looks exactly like one that
+			// worked, and the log of a job that passed is not somewhere
+			// anybody goes looking. A closed pull request is expected
+			if pull.FromFork() && !cfg.allowFork {
+				notice(fmt.Sprintf(
+					"No comment on #%d: it comes from a fork, and allow-fork is not set.", pull.Number))
+				summarize(fmt.Sprintf(forkSummary, pull.Number))
+			}
+			return skipped(collected.Total, pull.Number)
+		}
+
+		// --allow-fork asserts that this run holds the base repository's token
+		// rather than the fork's. Asking once whether that is true costs one
+		// request and turns the alternative -- collect everything, then a 403
+		// from git push -- into a skip that names what is wrong. Not being able
+		// to ask is no reason to stop: the run was authorised either way, and
+		// the push reports the truth soon enough
+		if pull.FromFork() && cfg.allowFork {
+			switch writable, err := client.Writable(ctx); {
+			case err != nil:
+				logf("could not check whether this token can write to %s: %v", repository, err)
+			case !writable:
+				logf("#%d: allow-fork is set, but this token cannot write to %s; skipping",
+					pull.Number, repository)
+				notice(fmt.Sprintf(
+					"No comment on #%d: allow-fork is set, but this job's token cannot write to %s.",
+					pull.Number, repository))
+				summarize(fmt.Sprintf(forkTokenSummary, pull.Number, repository))
+				return skipped(collected.Total, pull.Number)
+			}
 		}
 	}
 
@@ -242,17 +289,17 @@ func run(ctx context.Context) error {
 		logf("commented on #%d as %s (%d)", pull.Number, t.key, commentID)
 	}
 
-	if cfg.dryRun {
-		return nil
-	}
-
 	// a template dropped from the list leaves a comment showing an older run
-	if pruned, err := client.PruneComments(ctx, pull.Number, prefix, keep); err != nil {
-		return err
-	} else if pruned > 0 {
-		logf("deleted %d comment(s) from templates no longer listed", pruned)
+	if !cfg.dryRun {
+		if pruned, err := client.PruneComments(ctx, pull.Number, prefix, keep); err != nil {
+			return err
+		} else if pruned > 0 {
+			logf("deleted %d comment(s) from templates no longer listed", pruned)
+		}
 	}
 
+	// written on a dry run too. Nothing here pushes or comments, and a rehearsal
+	// that leaves out what a workflow reads afterwards is not one
 	return writeOutputs(map[string]string{
 		"state":    string(view.State),
 		"total":    strconv.Itoa(view.Total),
@@ -390,14 +437,102 @@ func resolvePull(ctx context.Context, client *ghapi.Client, number int, sha stri
 	return client.PullForCommit(ctx, sha)
 }
 
-// withURLs fills in each image's URL now that a commit holds it.
+// withURLs fills in each image's URL now that a commit holds it. Every segment
+// is escaped separately, the slashes between them being the only ones that are
+// path: collect passes a space, a `#` and anything outside ASCII through, and
+// none of the three survives being dropped into a URL as it stands.
 func withURLs(images []sheet.Image, rawURL, repository, commit string) []sheet.Image {
 	out := make([]sheet.Image, 0, len(images))
 	for _, image := range images {
-		image.URL = fmt.Sprintf("%s/%s/%s/%s", strings.TrimSuffix(rawURL, "/"), repository, commit, image.Path)
+		segments := strings.Split(image.Path, "/")
+		for i, segment := range segments {
+			segments[i] = url.PathEscape(segment)
+		}
+		image.URL = fmt.Sprintf("%s/%s/%s/%s",
+			strings.TrimSuffix(rawURL, "/"), repository, commit, strings.Join(segments, "/"))
 		out = append(out, image)
 	}
 	return out
+}
+
+// forkSummary is the run summary for the one skip a maintainer is likely to
+// have meant to avoid. It names the fix rather than only the cause, because
+// somebody reading it has a pull request in front of them with no comment on it
+// and no idea that a second workflow is what this takes.
+const forkSummary = `### Contact Sheet
+
+No comment on #%d: it comes from a fork, and ` + "`allow-fork`" + ` is not set.
+
+A workflow that a fork's pull request triggered gets a read-only token whatever
+the permissions block asks for, and no secret of yours is passed to it either —
+so this is skipped by default rather than failed halfway through. Where the
+token is the base repository's, an ` + "`issue_comment`" + ` or ` + "`workflow_run`" + ` run,
+set ` + "`allow-fork: true`" + ` to say so — see
+[Pull requests from forks](https://github.com/miyamo2/contact-sheet#pull-requests-from-forks).
+`
+
+// forkTokenSummary is the other half: allow-fork was set, and the claim it
+// makes about the token turned out not to hold. Saying which workflow can hold
+// one matters more than saying this one cannot, because the reader has already
+// decided they want the comment.
+const forkTokenSummary = `### Contact Sheet
+
+No comment on #%d: ` + "`allow-fork`" + ` is set, but this job's token cannot write
+to %s.
+
+A ` + "`pull_request`" + ` run on a fork's pull request never gets a writable token,
+whatever the permissions block asks for. ` + "`allow-fork`" + ` does not change that —
+it says the token came from somewhere else, and here it did not. Move the step
+to a workflow that holds this repository's token: a ` + "`workflow_run`" + ` job
+picking up the artifact, or an ` + "`issue_comment`" + ` command — see
+[Pull requests from forks](https://github.com/miyamo2/contact-sheet#pull-requests-from-forks).
+`
+
+// skipped ends a run that will not comment, and says so in the outputs. A
+// workflow branching on `state` would otherwise read the empty string and have
+// to know that it means this. `skipped` is not one of the states a template
+// sees: the run ends before there is anything to render.
+func skipped(total, pull int) error {
+	return writeOutputs(map[string]string{
+		"state":    "skipped",
+		"total":    strconv.Itoa(total),
+		"pull":     strconv.Itoa(pull),
+		"ref":      "",
+		"commit":   "",
+		"comments": "",
+	})
+}
+
+// notice puts a line on the run's page and in its annotations, which is where
+// somebody looks when a job is green and nothing happened.
+func notice(message string) {
+	fmt.Printf("::notice title=Contact Sheet::%s\n", escapeCommand(message))
+}
+
+// escapeCommand encodes the three characters a workflow command's data cannot
+// carry. Anything unescaped here would end the command early and print the rest
+// as ordinary output.
+func escapeCommand(message string) string {
+	return strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A").Replace(message)
+}
+
+// summarize appends Markdown to the run summary, the panel at the top of a
+// run's page. Not being able to write it is not a reason to fail a run that
+// otherwise did what it was asked.
+func summarize(markdown string) {
+	path := os.Getenv("GITHUB_STEP_SUMMARY")
+	if path == "" {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		logf("could not write the run summary: %v", err)
+		return
+	}
+	defer file.Close()
+	if _, err := io.WriteString(file, markdown+"\n"); err != nil {
+		logf("could not write the run summary: %v", err)
+	}
 }
 
 func writeOutputs(values map[string]string) error {

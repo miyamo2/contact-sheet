@@ -19,6 +19,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/miyamo2/contact-sheet/internal/sheet"
 )
@@ -44,6 +46,31 @@ type Result struct {
 	// This is what gets committed.
 	Paths []string
 	Total int
+	// Skipped lists the images left out because Safe rejected their path, so
+	// the caller can say so rather than have them go missing quietly.
+	Skipped []string
+}
+
+// unsafeInPath is the set of characters a collected path may not contain. A
+// path is written into the comment as text -- a table cell, a code span, the
+// summary of a <details> -- and each of these ends the construct it was written
+// into and begins another: a second cell, a tag, a link.
+//
+// It matters because the path is not the action's to choose. The images come
+// out of a directory the workflow points at, and on a pull request from a fork
+// that directory was filled by whoever opened it. Escaping instead would need
+// to know where the template puts the name, which is the template author's
+// business and not this package's.
+const unsafeInPath = "`|<>\"\\[]"
+
+// Safe reports whether a slash-separated relative path can be written into a
+// comment body as it stands. Control characters and anything that is not valid
+// UTF-8 are out for the same reason as the punctuation: what a comment does
+// with them is not predictable enough to find out on someone's pull request.
+func Safe(rel string) bool {
+	return utf8.ValidString(rel) &&
+		!strings.ContainsAny(rel, unsafeInPath) &&
+		strings.IndexFunc(rel, unicode.IsControl) < 0
 }
 
 // Collect walks Root. Files that the layout does not match are skipped in
@@ -51,7 +78,10 @@ type Result struct {
 // fail the run -- and the images come back sorted by path so two runs over the
 // same directory produce the same comment.
 func Collect(o Options) (Result, error) {
-	var images []sheet.Image
+	var (
+		images  []sheet.Image
+		skipped []string
+	)
 
 	err := filepath.WalkDir(o.Root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -70,24 +100,32 @@ func Collect(o Options) (Result, error) {
 		}
 		rel = filepath.ToSlash(rel)
 
+		var captures map[string]string
 		if o.Layout == nil {
 			if !imageExtensions[strings.ToLower(strings.TrimPrefix(path.Ext(rel), "."))] {
 				return nil
 			}
-			images = append(images, sheet.NewImage(rel, nil))
-			return nil
+		} else {
+			match := o.Layout.FindStringSubmatch(rel)
+			if match == nil {
+				return nil
+			}
+			captures = map[string]string{}
+			for i, name := range o.Layout.SubexpNames() {
+				if name == "" || i >= len(match) {
+					continue
+				}
+				captures[name] = match[i]
+			}
 		}
 
-		match := o.Layout.FindStringSubmatch(rel)
-		if match == nil {
+		// the file is one to collect; whether its name survives being written
+		// into a comment is the last thing between it and the sheet. Reported
+		// rather than dropped in silence, because unlike a file the layout did
+		// not match, this one was meant to be here
+		if !Safe(rel) {
+			skipped = append(skipped, rel)
 			return nil
-		}
-		captures := map[string]string{}
-		for i, name := range o.Layout.SubexpNames() {
-			if name == "" || i >= len(match) {
-				continue
-			}
-			captures[name] = match[i]
 		}
 		images = append(images, sheet.NewImage(rel, captures))
 		return nil
@@ -98,7 +136,9 @@ func Collect(o Options) (Result, error) {
 
 	sort.Slice(images, func(i, j int) bool { return images[i].Path < images[j].Path })
 
-	result := Result{Images: images, Total: len(images)}
+	sort.Strings(skipped)
+
+	result := Result{Images: images, Total: len(images), Skipped: skipped}
 	for _, image := range images {
 		result.Paths = append(result.Paths, image.Path)
 	}

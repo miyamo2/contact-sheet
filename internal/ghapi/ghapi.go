@@ -87,9 +87,33 @@ type PullRequest struct {
 }
 
 // FromFork reports whether the pull request's head lives in another repository.
-// A fork's GITHUB_TOKEN is read-only, so the push stage cannot run for one.
+// Whether that is a problem depends on the token: the same pull request is out
+// of reach from the workflow it triggered and in reach from one the base
+// repository ran itself, which is what --allow-fork is for.
 func (p PullRequest) FromFork() bool {
 	return p.Head.Repo.FullName != "" && p.Head.Repo.FullName != p.Base.Repo.FullName
+}
+
+// Writable reports whether this token may write to the repository. The
+// repository endpoint reports the permissions of whoever is asking, which for
+// GITHUB_TOKEN is the installation it was minted for.
+//
+// This decides nothing on its own. --allow-fork is what permits a fork's pull
+// request, because whether a stranger's code should produce a comment here is a
+// judgement no endpoint can return. What this answers is the narrower question
+// of whether the claim --allow-fork makes about the token holds -- so that a
+// run which cannot possibly succeed says why, instead of collecting everything
+// and stopping on a 403 from git push.
+func (c *Client) Writable(ctx context.Context) (bool, error) {
+	var repo struct {
+		Permissions struct {
+			Push bool `json:"push"`
+		} `json:"permissions"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/repos/"+c.Repository, nil, &repo); err != nil {
+		return false, err
+	}
+	return repo.Permissions.Push, nil
 }
 
 // PullForCommit returns the pull request a commit belongs to. It prefers an
