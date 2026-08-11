@@ -7,12 +7,26 @@ name: Dogfooding
 # change to a template, or to what the binary renders, is reviewed as the thing
 # a reader would see rather than as a diff.
 #
+# A run reports itself as the `dogfooding` commit status on the pull request's
+# head, so that branch protection can require it: a head nobody has run the
+# command on carries the pending status this file posts when the commit appears,
+# and a merge waits until a run has reported success on that exact commit. The
+# rule itself is not in this repository -- it is a required status check named
+# `dogfooding` on the default branch, added under Settings > Rules (or
+# `gh api -X PUT repos/:owner/:repo/branches/main/protection`), and this file
+# only feeds it. Two consequences worth stating: pushing a commit clears the
+# result, because the status belongs to the commit that was built and not to the
+# pull request; and a fork's pull request can never satisfy the check, because
+# the command refuses a fork, so merging one is an administrator's override.
+#
 # Four things worth knowing before reading further:
 #
 #   - issue_comment only ever runs the copy of this file on the default branch,
 #     so a change to this workflow is in effect one merge after it is written;
 #     everything it checks out, builds and renders does come from the pull
-#     request.
+#     request. pull_request_target, which is what posts the pending status, runs
+#     the default branch's copy too -- a pull request cannot edit the job that
+#     reports on it, and that job checks nothing out.
 #   - the command is restricted to a code owner or a maintainer because the job
 #     builds and runs the pull request's code with a token that can write to
 #     this repository. A pull request from a fork is refused outright -- the
@@ -30,6 +44,8 @@ name: Dogfooding
 on:
   issue_comment:
     types: [created]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
 
 permissions: {}
 
@@ -37,12 +53,53 @@ permissions: {}
 # rewriting the same comments, so the second waits rather than starting. It is
 # not cancelled either: a run that has already pushed its ref and written some
 # of its comments is left to finish the rest. GitHub keeps one run waiting per
-# group, so a third command supersedes the one still queued
+# group, so a third command supersedes the one still queued.
+#
+# the event is part of the group, and a pending status is keyed by the commit it
+# is posted for: seeding a new commit has nothing to rewrite and no reason to
+# queue behind the run still commenting on the previous one
 concurrency:
-  group: dogfooding-${{ github.event.issue.number }}
+  group: >-
+    dogfooding-${{ github.event_name }}-${{ github.event.issue.number
+    || github.event.pull_request.head.sha }}
   cancel-in-progress: false
 
 jobs:
+  # A required check nothing has ever reported reads as "Expected" with no run
+  # to open and no hint of what is expected of anyone. This posts the context as
+  # pending as soon as a commit appears, so the pull request says what is
+  # missing; a run overwrites it with its own result.
+  pending:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Say that this commit has not been dogfooded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # reopening fires on a commit a run may already have reported on, and
+          # a synchronize can land on a commit that was pushed once before.
+          # Overwriting either with pending would ask for a rerun of something
+          # that has not changed
+          reported="$(gh api "repos/${REPOSITORY}/commits/${SHA}/status" \
+            --jq '[.statuses[] | select(.context == "dogfooding")] | length')"
+          if [[ "${reported}" -gt 0 ]]; then
+            echo "dogfooding is already reported on ${SHA}; leaving it as it is"
+            exit 0
+          fi
+
+          gh api --method POST "repos/${REPOSITORY}/statuses/${SHA}" \
+            -f state=pending \
+            -f context=dogfooding \
+            -f description='comment /dogfooding on this pull request to run it' \
+            --silent
+
   # Nothing the gate reads comes from the pull request: the roles come from the
   # API and CODEOWNERS from the default branch, because a pull request cannot be
   # allowed to nominate its own author as a code owner. The head is checked out
@@ -51,12 +108,14 @@ jobs:
     # issue_comment fires on issues too, and .pull_request is set only on a
     # comment under a pull request
     if: >-
-      github.event.issue.pull_request != null
+      github.event_name == 'issue_comment'
+      && github.event.issue.pull_request != null
       && startsWith(github.event.comment.body, '/dogfooding')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
+      statuses: write # moves `dogfooding` to pending, pointing at this run
     outputs:
       allowed: ${{ steps.gate.outputs.allowed }}
       head-sha: ${{ steps.gate.outputs.head-sha }}
@@ -128,6 +187,26 @@ jobs:
 
           echo "allowed=true" >> "${GITHUB_OUTPUT}"
           echo "head-sha=${pull[2]}" >> "${GITHUB_OUTPUT}"
+
+      # the head the gate read is the head the rest of the run builds, and the
+      # commit the result is reported on. A command refused by the gate reports
+      # nothing: it leaves the pending status a commit is seeded with, or the
+      # result an earlier run already reached, rather than restarting a check
+      # that is not going to run
+      - name: Point the dogfooding status at this run
+        if: steps.gate.outputs.allowed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ steps.gate.outputs.head-sha }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/${REPOSITORY}/statuses/${SHA}" \
+            -f state=pending \
+            -f context=dogfooding \
+            -f target_url="${RUN}" \
+            -f description='rendering a comment per template' \
+            --silent
 
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         if: steps.gate.outputs.allowed == 'true'
@@ -237,3 +316,62 @@ jobs:
           # alongside the real ones, and one `git push origin :ref` reclaims them
           ref-namespace: refs/contact-sheet/dogfooding/${{ steps.inputs.outputs.key }}
           pull-number: ${{ github.event.issue.number }}
+
+  # One status for a matrix that renders one template per job: what branch
+  # protection can require is a context, and a context is either reported or it
+  # is not. `needs.dogfooding.result` is already the whole matrix collapsed into
+  # one word -- success only if every template got its comment, which is what
+  # fail-fast: false makes worth waiting for.
+  #
+  # `always()` is what lets a red matrix be reported instead of skipped; the
+  # authorize guard is what keeps a refused command from touching the status.
+  # Its outputs survive a later failure in that job, so a gate that passed and
+  # then broke on the checkout still lands as a failure on the commit rather
+  # than as a pending status nobody will clear.
+  report:
+    needs: [authorize, dogfooding]
+    if: always() && needs.authorize.outputs.allowed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Report the run on ${{ needs.authorize.outputs.head-sha }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ needs.authorize.outputs.head-sha }}
+          AUTHORIZE: ${{ needs.authorize.result }}
+          DOGFOODING: ${{ needs.dogfooding.result }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # a matrix that never started because the gate itself broke is
+          # reported as the gate's failure, not as "skipped"
+          result="${DOGFOODING}"
+          [[ "${AUTHORIZE}" == success ]] || result="${AUTHORIZE}"
+
+          case "${result}" in
+            success)
+              state=success
+              description='every template rendered and commented'
+              ;;
+            cancelled)
+              # error rather than failure: nothing was decided about the commit,
+              # and the wording should not suggest a template broke
+              state=error
+              description='the run was cancelled; comment /dogfooding again'
+              ;;
+            *)
+              state=failure
+              description='a template did not render; the run has the log'
+              ;;
+          esac
+
+          echo "authorize=${AUTHORIZE} dogfooding=${DOGFOODING} -> ${state} on ${SHA}"
+          gh api --method POST "repos/${REPOSITORY}/statuses/${SHA}" \
+            -f "state=${state}" \
+            -f context=dogfooding \
+            -f target_url="${RUN}" \
+            -f "description=${description}" \
+            --silent
