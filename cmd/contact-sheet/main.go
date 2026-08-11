@@ -49,6 +49,33 @@ type config struct {
 	imageWidth    int
 	pullNumber    int
 	dryRun        bool
+	allowFork     bool
+}
+
+// skipReason says why a pull request is not one to comment on, or "" when it
+// is.
+//
+// A fork is the interesting case. The action skips one by default not because
+// of anything about the pull request but because of the token it is usually
+// holding: a `pull_request` run on a fork's pull request gets a read-only
+// GITHUB_TOKEN, which can neither push the ref nor write the comment, and
+// failing halfway through is a worse answer than saying so up front. A workflow
+// that holds the base repository's token instead -- an issue_comment or
+// workflow_run run, or one handed a PAT -- has none of that problem, and
+// --allow-fork is how it says so.
+//
+// What --allow-fork does not do is make running a fork's code safe. That is the
+// calling workflow's problem, and the reason the one in this repository asks a
+// maintainer to type the command first.
+func skipReason(pull *ghapi.PullRequest, allowFork bool) string {
+	switch {
+	case pull.State != "open":
+		return fmt.Sprintf("#%d is %s; leaving it alone", pull.Number, pull.State)
+	case pull.FromFork() && !allowFork:
+		return fmt.Sprintf("#%d comes from a fork, whose token can neither push nor comment; "+
+			"pass --allow-fork if this run's token is the base repository's", pull.Number)
+	}
+	return ""
 }
 
 func main() {
@@ -137,32 +164,18 @@ func run(ctx context.Context) error {
 			logf("%s belongs to no pull request; nothing to comment on", short(sha))
 			return skipped(collected.Total, 0)
 		}
-		if pull.State != "open" {
-			logf("#%d is %s; leaving it alone", pull.Number, pull.State)
-			return skipped(collected.Total, pull.Number)
-		}
-		if pull.FromFork() {
-			// a fork's pull request is not out of bounds -- the token is. The
-			// workflow the fork triggered holds a read-only one, which can
-			// neither push the ref nor write the comment; the same pull request
-			// commented on from a workflow_run job holds this repository's,
-			// which can. See "Pull requests from forks" in the README
-			writable, err := client.Writable(ctx)
-			if err != nil {
-				return err
-			}
-			if !writable {
-				// this one is worth saying out loud. A green job that quietly
-				// did nothing looks exactly like one that worked, and the log
-				// of a job that passed is not somewhere anybody goes looking
-				logf("#%d comes from a fork and this token cannot write to %s; skipping", pull.Number, repository)
+		if reason := skipReason(pull, cfg.allowFork); reason != "" {
+			logf("%s", reason)
+			// the fork case is worth saying out loud, and only that one: a
+			// green job that quietly did nothing looks exactly like one that
+			// worked, and the log of a job that passed is not somewhere
+			// anybody goes looking. A closed pull request is expected
+			if pull.FromFork() && !cfg.allowFork {
 				notice(fmt.Sprintf(
-					"No comment on #%d: it comes from a fork, and the token this job holds cannot write to %s.",
-					pull.Number, repository))
-				summarize(fmt.Sprintf(forkSummary, pull.Number, repository))
-				return skipped(collected.Total, pull.Number)
+					"No comment on #%d: it comes from a fork, and allow-fork is not set.", pull.Number))
+				summarize(fmt.Sprintf(forkSummary, pull.Number))
 			}
-			logf("#%d comes from a fork, and this token can write to %s", pull.Number, repository)
+			return skipped(collected.Total, pull.Number)
 		}
 	}
 
@@ -427,12 +440,13 @@ func withURLs(images []sheet.Image, rawURL, repository, commit string) []sheet.I
 // and no idea that a second workflow is what this takes.
 const forkSummary = `### Contact Sheet
 
-No comment on #%d: it comes from a fork, and the token this job holds cannot
-write to %s.
+No comment on #%d: it comes from a fork, and ` + "`allow-fork`" + ` is not set.
 
 A workflow that a fork's pull request triggered gets a read-only token whatever
-the permissions block asks for, and no secret of yours is passed to it either.
-Commenting on one takes a second workflow, off your default branch — see
+the permissions block asks for, and no secret of yours is passed to it either —
+so this is skipped by default rather than failed halfway through. Where the
+token is the base repository's, an ` + "`issue_comment`" + ` or ` + "`workflow_run`" + ` run,
+set ` + "`allow-fork: true`" + ` to say so — see
 [Pull requests from forks](https://github.com/miyamo2/contact-sheet#pull-requests-from-forks).
 `
 

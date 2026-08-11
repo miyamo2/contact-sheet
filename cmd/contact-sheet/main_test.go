@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/miyamo2/contact-sheet/internal/ghapi"
 	"github.com/miyamo2/contact-sheet/internal/render"
 	"github.com/miyamo2/contact-sheet/internal/sheet"
 )
@@ -82,6 +83,43 @@ func TestLoadTemplateRejectsHugeBody(t *testing.T) {
 
 // The key names the comment, so a remote template and a local copy of it have
 // to land on the same one.
+// Skipping is how a run says "the token I have cannot finish this", so the fork
+// case turns on the flag rather than on the pull request alone -- and no flag
+// makes a closed pull request worth commenting on.
+func TestSkipReason(t *testing.T) {
+	const base = "miyamo2/contact-sheet"
+
+	pull := func(state, head string) *ghapi.PullRequest {
+		p := &ghapi.PullRequest{Number: 7, State: state}
+		p.Head.Repo.FullName = head
+		p.Base.Repo.FullName = base
+		return p
+	}
+
+	for _, tt := range []struct {
+		name      string
+		pull      *ghapi.PullRequest
+		allowFork bool
+		skip      bool
+	}{
+		{"open on a branch", pull("open", base), false, false},
+		{"open from a fork", pull("open", "someone/contact-sheet"), false, true},
+		{"open from a fork, allowed", pull("open", "someone/contact-sheet"), true, false},
+		{"closed on a branch", pull("closed", base), false, true},
+		{"closed from a fork, allowed", pull("closed", "someone/contact-sheet"), true, true},
+		// the head repository is absent once a fork is deleted, and a pull
+		// request on this repository's own branch is not a fork either way
+		{"open with no head repository", pull("open", ""), false, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reason := skipReason(tt.pull, tt.allowFork)
+			if got := reason != ""; got != tt.skip {
+				t.Errorf("skipReason() = %q, want skip = %v", reason, tt.skip)
+			}
+		})
+	}
+}
+
 func TestTemplateKey(t *testing.T) {
 	for ref, want := range map[string]string{
 		"templates/gallery.tmpl":                                    "gallery",
@@ -271,8 +309,8 @@ func TestSummarizeWithoutActions(t *testing.T) {
 // The summary is what a maintainer reads when a fork's pull request got no
 // comment, so it has to name the fix and not just the cause.
 func TestForkSummaryNamesTheFix(t *testing.T) {
-	got := fmt.Sprintf(forkSummary, 42, "miyamo2/blog")
-	for _, want := range []string{"#42", "miyamo2/blog", "read-only", "#pull-requests-from-forks"} {
+	got := fmt.Sprintf(forkSummary, 42)
+	for _, want := range []string{"#42", "allow-fork: true", "read-only", "#pull-requests-from-forks"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the summary does not mention %q:\n%s", want, got)
 		}

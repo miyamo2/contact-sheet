@@ -65,11 +65,12 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
 
-      - uses: miyamo2/contact-sheet@v1
+      - uses: miyamo2/contact-sheet@main
         with:
           path: captures
           sha: ${{ github.event.workflow_run.head_sha }}
           status: ${{ github.event.workflow_run.conclusion }}
+          allow-fork: 'true'
 ```
 
 Like every event that is not tied to a code ref, `workflow_run` resolves the
@@ -77,10 +78,11 @@ workflow from your default branch — so the pull request that adds these two
 files will run `E2E` and no comment will appear. It starts working when it is
 merged.
 
-Three things are worth knowing before you copy it:
+Four things are worth knowing before you copy it:
 
 | | |
 | --- | --- |
+| `allow-fork` | without it a fork's pull request is skipped, because the action assumes the read-only token a `pull_request` run would have. This job's token is yours, and this is how it says so |
 | `sha` | that job stands on your default branch, so `GITHUB_SHA` is not the commit under review. This input is what the status line shows and what the pull request is resolved from |
 | no checkout | nothing here fetches the fork's head, and nothing should. If you need a custom template, `actions/checkout` in this workflow gives you *your* default branch, which is where it belongs |
 | `status` | `workflow_run.conclusion` is the triggering run's outcome as a whole, not one step's |
@@ -98,7 +100,7 @@ If nothing will ever arrive from a fork — an internal repository, a personal o
   id: capture
   run: npm run e2e
 
-- uses: miyamo2/contact-sheet@v1
+- uses: miyamo2/contact-sheet@main
   if: ${{ always() }}
   with:
     path: e2e/captures
@@ -114,10 +116,10 @@ permissions:
 ```
 
 Faced with a fork's pull request this does nothing at all: the token it holds
-cannot write, the action sees that and skips rather than failing. The run stays
-green, `state` comes back `skipped`, and the reason is put on the run's page —
-not only in the log — because a pull request with no comment on it is otherwise
-a mystery. There is still no comment.
+cannot write, so the action skips rather than collecting the images and failing
+on the push. The run stays green, `state` comes back `skipped`, and the reason
+is put on the run's page — not only in the log — because a pull request with no
+comment on it is otherwise a mystery. There is still no comment.
 
 ## What the comment looks like
 
@@ -219,7 +221,7 @@ the images are instead. Nothing else about the run changes.
 ## Pull requests from forks
 
 Why the [recommended setup](#recommended--two-workflows) is two files rather
-than one.
+than one, and why it passes `allow-fork`.
 
 A workflow a fork's pull request triggered holds a read-only `GITHUB_TOKEN`.
 GitHub caps it there because that workflow is running the fork's code — and for
@@ -238,11 +240,27 @@ checking out `workflow_run.head_sha` in the second workflow and building it —
 `npm ci` alone is enough, `postinstall` runs — because that puts fork code back
 next to the write token, which is the whole thing the split exists to prevent.
 
-The action makes its own decision either way. Faced with a fork's pull request
-it asks GitHub whether the token it was handed can write to the repository, and
-skips when it cannot rather than failing. So the short setup costs nothing if
-you leave it in place, and a repository that hands write tokens to fork pull
-requests on purpose is not second-guessed.
+### `allow-fork`
+
+The action skips a fork's pull request by default, and collecting the images
+only to fail on the push is a worse answer than saying so up front. But that
+default is about the token, not the pull request — so a workflow holding one
+that _can_ write says so with `allow-fork: true` and gets the comment. The token
+has to come from somewhere other than the fork's run: a `workflow_run` job
+picking up the artifact, an `issue_comment` command, or a PAT.
+
+Note what the second of those implies. A workflow that checks a fork's head out
+is building and running a stranger's code with a token that can write to your
+repository, so it needs a gate of its own — a command only a maintainer may
+issue, an environment with a required reviewer, or a label. **`allow-fork`
+decides whether the comment gets written; it decides nothing about whether
+writing it was safe.** The recommended setup earns it differently: it never runs
+the fork's code in the job holding the token, so there is nothing to gate.
+
+Left unset on a fork's pull request, the run stays green, `state` comes back
+`skipped`, and the reason and the fix go to the run's page and its summary —
+not only the log, because a pull request with no comment on it is otherwise a
+mystery.
 
 ### What a fork gets to decide
 
@@ -344,7 +362,7 @@ The body is a [text/template](https://pkg.go.dev/text/template). Point
 `template-files` at your own to replace the built-in one:
 
 ```yaml
-- uses: miyamo2/contact-sheet@v1
+- uses: miyamo2/contact-sheet@main
   with:
     path: e2e/captures
     template-files: .github/contact-sheet.tmpl
@@ -376,10 +394,10 @@ An entry is a path in your checkout or an `https://` URL, so the four in this
 repository's [`templates/`](./templates) can be used without copying them:
 
 ```yaml
-- uses: miyamo2/contact-sheet@v1
+- uses: miyamo2/contact-sheet@main
   with:
     path: e2e/captures
-    template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/v1/templates/gallery.tmpl
+    template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/main/templates/gallery.tmpl
 ```
 
 | | |
@@ -472,6 +490,7 @@ would have posted, so a template can be iterated on locally in seconds.
 | `sha` | `GITHUB_SHA` | commit the images belong to; a `workflow_run` job wants `github.event.workflow_run.head_sha` |
 | `pull-number` | resolved from the commit | pull request to comment on |
 | `dry-run` | `false` | push nothing, comment nothing |
+| `allow-fork` | `false` | comment on a fork's pull request; needs a token that is not the fork's |
 | `github-token` | `github.token` | needs `contents: write` and `pull-requests: write` |
 
 ## Outputs

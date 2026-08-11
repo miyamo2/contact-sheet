@@ -4,6 +4,11 @@ name: Release
 # to write that file before the tag exists -- otherwise the tag would point at a
 # tree asking for the previous release's binaries. The order is: bump, commit,
 # tag the commit, then build.
+#
+# There is no moving major tag. `main` is what the README points at and what
+# branch protection covers, and a release tag is immutable; a `v1` that every
+# release force-pushes to a new commit would be the one ref here that neither of
+# those protects, and nothing points at it any more.
 on:
   workflow_dispatch:
     inputs:
@@ -53,13 +58,3 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # `uses: miyamo2/contact-sheet@v1` should follow the newest v1.x, so the
-      # major tag moves to the release commit once its assets exist
-      - name: Move the major tag
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          major="${VERSION%%.*}"
-          git tag -f "${major}"
-          git push -f origin "${major}"

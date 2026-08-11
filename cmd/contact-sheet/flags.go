@@ -35,6 +35,8 @@ func parseFlags() config {
 		"pull request to comment on; 0 resolves it from GITHUB_SHA")
 	flag.BoolVar(&cfg.dryRun, "dry-run", envBool("DRY_RUN", false),
 		"push nothing, comment nothing, print the body to stdout")
+	flag.BoolVar(&cfg.allowFork, "allow-fork", envBool("ALLOW_FORK", false),
+		"comment on a pull request from a fork; only for a token that can write to the base repository")
 	flag.Parse()
 	return cfg
 }
