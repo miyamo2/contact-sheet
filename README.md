@@ -293,9 +293,14 @@ The workflow file a `pull_request` run executes is the pull request's own copy,
 so the artifact's contents, names and size are the contributor's to choose.
 
 The images are pushed to a ref of yours, which costs storage. The names are
-written into the comment, which is where the care goes: a file whose name would
-end the table cell, code span or tag a template put it in is not collected — see
-[Names that cannot go in a comment](#names-that-cannot-go-in-a-comment).
+written into the comment, and the contents are published: both are where the
+care goes. A file whose name would end the table cell, code span or tag a
+template put it in is not collected — see [Names that cannot go in a
+comment](#names-that-cannot-go-in-a-comment) — and neither is a symbolic link or
+a file whose bytes are not the picture its name promises, so nothing outside the
+artifact and nothing that is not an image reaches the ref. See [Files that are
+not the picture they claim to
+be](#files-that-are-not-the-picture-they-claim-to-be).
 
 ## How this compares
 
@@ -328,10 +333,10 @@ there.
 
 ## Choosing which files to collect
 
-Every file that looks like an image — png, jpg, jpeg, gif, webp — is collected,
-and that is the whole of it unless you say otherwise. SVG is left out on
-purpose: GitHub's image proxy will not render one from a raw URL, so collecting
-them would put broken cells in the comment.
+Every file that looks like an image — png, jpg, jpeg, gif, webp — and that turns
+out to be one is collected, and that is the whole of it unless you say
+otherwise. SVG is left out on purpose: GitHub's image proxy will not render one
+from a raw URL, so collecting them would put broken cells in the comment.
 
 `layout` narrows that and annotates it. It is one expression, matched against
 each file's slash-separated path under `path`, and it does two things:
@@ -379,6 +384,26 @@ action's. It matters most on [a pull request from a
 fork](#pull-requests-from-forks), where the names were chosen by whoever opened
 it — a space, a `#`, or a name in any script are all still fine, and are escaped
 properly where they land in a URL.
+
+### Files that are not the picture they claim to be
+
+A name is not evidence about contents, and the same pull request that chose the
+names chose those too. Two more files are skipped whatever the layout says, for
+what they are rather than what they are called:
+
+| | |
+| --- | --- |
+| a symbolic link | copying one follows it, so whatever it points at — anywhere on the runner, inside the checkout or outside it — is what would be committed and pushed to a public ref |
+| contents that are not the picture the extension promises | a `.png` holding two megabytes of something else is published all the same and renders as a broken cell |
+
+So the leading bytes of every collected file are read and held against its
+extension: `about-light.png` has to be a PNG. Where a `layout` picks out a file
+whose extension this action knows nothing about, the bytes still have to be one
+of png, jpeg, gif or webp — a comment showing them has no extension to go on
+either.
+
+Both are named in the log, for the same reason a rejected name is: unlike a file
+the layout did not match, one of these was meant to be there.
 
 ## Writing the comment
 

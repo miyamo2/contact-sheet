@@ -1,11 +1,86 @@
 package collect
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
+
+// imageBytes encodes a picture of the given format, so that what the tests
+// write is what a screenshot step would write rather than a header this package
+// happens to recognise.
+//
+// webp is the exception: the standard library encodes none, and only the RIFF
+// header decides what the bytes are, so that one is written out by hand.
+func imageBytes(t *testing.T, format string) []byte {
+	t.Helper()
+	if format == "webp" {
+		// "RIFF", the length of what follows, then the WEBP form and a VP8L
+		// chunk header
+		return []byte("RIFF\x14\x00\x00\x00WEBPVP8L\x08\x00\x00\x00\x2f\x00\x00\x00\x00\x00\x00\x00")
+	}
+
+	canvas := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	canvas.Set(0, 0, color.RGBA{R: 0x22, G: 0x44, B: 0x88, A: 0xff})
+
+	var out bytes.Buffer
+	var err error
+	switch format {
+	case "png":
+		err = png.Encode(&out, canvas)
+	case "jpeg":
+		err = jpeg.Encode(&out, canvas, nil)
+	case "gif":
+		err = gif.Encode(&out, canvas, nil)
+	default:
+		t.Fatalf("no encoder for %q", format)
+	}
+	if err != nil {
+		t.Fatalf("encode %s: %v", format, err)
+	}
+	return out.Bytes()
+}
+
+// write puts content at root/name, creating the directories above it.
+func write(t *testing.T, root, name string, content []byte) string {
+	t.Helper()
+	full := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, content, 0o600); err != nil {
+		t.Fatalf("write %q: %v", name, err)
+	}
+	return full
+}
+
+// reasonFor returns the reason the result gives for leaving a path out, or ""
+// if it did not leave it out.
+func reasonFor(got Result, rel string) string {
+	for _, skip := range got.Skipped {
+		if skip.Path == rel {
+			return skip.Reason
+		}
+	}
+	return ""
+}
+
+func collected(got Result, rel string) bool {
+	for _, p := range got.Paths {
+		if p == rel {
+			return true
+		}
+	}
+	return false
+}
 
 // exampleLayout is one a user might write, not one the action ships: it names
 // two captures the action attaches no meaning to.
@@ -153,9 +228,7 @@ func TestCollectSkipsPathsACommentCannotHold(t *testing.T) {
 		"back\\slash.png", // escapes whatever follows it
 	}
 	for _, name := range append(append([]string{}, safe...), unsafe...) {
-		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0o600); err != nil {
-			t.Fatalf("write %q: %v", name, err)
-		}
+		write(t, root, name, imageBytes(t, "png"))
 	}
 
 	for _, layout := range []string{"", `\.png$`} {
@@ -181,13 +254,7 @@ func TestCollectSkipsPathsACommentCannotHold(t *testing.T) {
 // groupBy and the summary of a <details>.
 func TestCollectSkipsUnsafeDirectories(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, "<b>shouting")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "plain.png"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, root, "<b>shouting/plain.png", imageBytes(t, "png"))
 	got, err := Collect(Options{Root: root})
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -197,6 +264,157 @@ func TestCollectSkipsUnsafeDirectories(t *testing.T) {
 	}
 	if len(got.Skipped) != 1 {
 		t.Errorf("skipped = %q, want the one file", got.Skipped)
+	}
+}
+
+// A symlink is reported by WalkDir the way an ordinary file is, and copying one
+// follows it: whatever it points at is what would be committed and pushed to a
+// public ref. The extension it wears is no evidence about the target.
+func TestCollectSkipsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("a token, say"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "real.png", imageBytes(t, "png"))
+	// one link to a file outside the tree, and one to a picture inside it: the
+	// link is refused for being a link, not for where it happens to point
+	if err := os.Symlink(outside, filepath.Join(root, "leaked.png")); err != nil {
+		t.Skipf("symlinks are not available here: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real.png"), filepath.Join(root, "alias.png")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, layout := range []string{"", `\.png$`} {
+		got, err := Collect(Options{Root: root, Layout: compile(t, layout)})
+		if err != nil {
+			t.Fatalf("Collect(layout=%q): %v", layout, err)
+		}
+		if !collected(got, "real.png") {
+			t.Errorf("layout=%q did not collect the one real image: %v", layout, got.Paths)
+		}
+		for _, rel := range []string{"leaked.png", "alias.png"} {
+			if collected(got, rel) {
+				t.Errorf("layout=%q collected the symlink %s", layout, rel)
+			}
+			if reason := reasonFor(got, rel); reason != reasonSymlink {
+				t.Errorf("layout=%q: %s reported as %q, want %q", layout, rel, reason, reasonSymlink)
+			}
+		}
+	}
+}
+
+// A directory reached through a symlink is not walked either -- WalkDir does not
+// follow one -- so nothing under it is collected.
+func TestCollectDoesNotFollowLinkedDirectories(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	write(t, outside, "elsewhere.png", imageBytes(t, "png"))
+	if err := os.Symlink(outside, filepath.Join(root, "captures")); err != nil {
+		t.Skipf("symlinks are not available here: %v", err)
+	}
+
+	got, err := Collect(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if got.Total != 0 {
+		t.Errorf("collected %v through a linked directory, want nothing", got.Paths)
+	}
+}
+
+// A name is not evidence of what a file holds, and on a pull request from a fork
+// the name is the contributor's to choose. Two megabytes of anything called
+// .png would be copied into the scratch repository, pushed to a public ref, and
+// rendered as a broken cell.
+func TestCollectSkipsContentThatIsNotAnImage(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "real.png", imageBytes(t, "png"))
+	write(t, root, "secret.png", []byte(strings.Repeat("not a picture, a text file\n", 64)))
+	write(t, root, "empty.png", nil)
+	// a real picture, but not the one the name promises
+	write(t, root, "mislabelled.png", imageBytes(t, "jpeg"))
+
+	for _, layout := range []string{"", `\.png$`} {
+		got, err := Collect(Options{Root: root, Layout: compile(t, layout)})
+		if err != nil {
+			t.Fatalf("Collect(layout=%q): %v", layout, err)
+		}
+		if got.Total != 1 || !collected(got, "real.png") {
+			t.Errorf("layout=%q collected %v, want just real.png", layout, got.Paths)
+		}
+		for _, rel := range []string{"secret.png", "empty.png", "mislabelled.png"} {
+			if reason := reasonFor(got, rel); !strings.Contains(reason, ".png file") {
+				t.Errorf("layout=%q: %s reported as %q, want the extension named", layout, rel, reason)
+			}
+		}
+	}
+}
+
+// jpg and jpeg are the same picture under two names, and webp is the one format
+// this package names that the standard library cannot encode -- so every format
+// the action claims to collect is checked against a file rather than assumed.
+func TestCollectAcceptsEveryFormatItNames(t *testing.T) {
+	root := t.TempDir()
+	for name, format := range map[string]string{
+		"shot.png":  "png",
+		"shot.jpg":  "jpeg",
+		"shot.jpeg": "jpeg",
+		"shot.gif":  "gif",
+		"shot.webp": "webp",
+	} {
+		write(t, root, name, imageBytes(t, format))
+	}
+	// and one the extension list leaves out on purpose
+	write(t, root, "logo.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))
+
+	got, err := Collect(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if got.Total != 5 {
+		t.Errorf("collected %v, want the five images", got.Paths)
+	}
+	if len(got.Skipped) != 0 {
+		t.Errorf("skipped %v, want nothing: the svg is not an image extension at all", got.Skipped)
+	}
+}
+
+// A layout matches on the path, so it can pick a file whose extension this
+// package knows nothing about. The bytes still have to be a picture, because a
+// comment showing them has no extension to go on either.
+func TestCollectChecksContentUnderAnUnknownExtension(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "shot.capture", imageBytes(t, "png"))
+	write(t, root, "trace.capture", []byte(strings.Repeat("timeline\n", 64)))
+
+	got, err := Collect(Options{Root: root, Layout: compile(t, `\.capture$`)})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if got.Total != 1 || !collected(got, "shot.capture") {
+		t.Errorf("collected %v, want just shot.capture", got.Paths)
+	}
+	if reason := reasonFor(got, "trace.capture"); !strings.Contains(reason, "not an image") {
+		t.Errorf("trace.capture reported as %q, want it named as not an image", reason)
+	}
+}
+
+// A file the layout never matched is not the caller's problem and stays out of
+// the report; one that was meant to be collected is named.
+func TestCollectReportsOnlyFilesItMeantToCollect(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "notes.txt", []byte("nothing to do with the sheet"))
+	write(t, root, "trace.zip", []byte("PK\x03\x04not really a zip"))
+	write(t, root, "huge.png", []byte(strings.Repeat("x", 1024)))
+
+	got, err := Collect(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(got.Skipped) != 1 || got.Skipped[0].Path != "huge.png" {
+		t.Errorf("skipped %v, want only huge.png", got.Skipped)
 	}
 }
 
