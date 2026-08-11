@@ -89,10 +89,23 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	if len(os.Args) > 1 && os.Args[1] == "--print-template" {
-		fmt.Print(render.DefaultTemplate())
-		return nil
+	// both of these answer a question about the binary rather than doing a run,
+	// and neither wants the flag set behind it
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--print-template":
+			fmt.Print(render.DefaultTemplate())
+			return nil
+		case "--version", "-version":
+			fmt.Print(build.Long())
+			return nil
+		}
 	}
+
+	// first line of the log, before anything can fail: a comment that came out
+	// wrong is read from the run that wrote it, and which binary that run
+	// installed is the first thing worth knowing
+	logf("contact-sheet %s", build.Short())
 
 	cfg := parseFlags()
 	if cfg.path == "" {
@@ -204,6 +217,7 @@ func run(ctx context.Context) error {
 		State:      render.StateEmpty,
 		Status:     cfg.status,
 		Title:      cfg.title,
+		Version:    build.Short(),
 		Repository: repository,
 		SHA:        sha,
 		ShortSHA:   short(sha),

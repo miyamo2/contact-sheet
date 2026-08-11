@@ -63,6 +63,11 @@ type Context struct {
 	Status string // outcome of the job that produced the images: success | failure
 	Title  string
 
+	// Version is the contact-sheet build that wrote the comment, as the binary
+	// reads it off its own build information -- a release tag, or a
+	// pseudo-version and commit for a build off one.
+	Version string
+
 	Repository string
 	SHA        string
 	ShortSHA   string

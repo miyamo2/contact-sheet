@@ -15,8 +15,15 @@ builds:
       - CGO_ENABLED=0
     flags:
       - -trimpath
+      # the binary reads its own version out of the build information the
+      # toolchain stamps in (runtime/debug), which for a build standing on a tag
+      # is that tag -- so nothing here has to inject a version, and nothing in
+      # the tree has to carry one. `true` rather than the default `auto` so that
+      # a build that cannot see the repository fails here instead of shipping a
+      # binary that calls itself "(devel)"
+      - -buildvcs=true
     ldflags:
-      - -s -w -X main.version={{ .Version }}
+      - -s -w
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
 

@@ -1,9 +1,9 @@
 name: Release
 
-# The version the composite action installs lives in VERSION, so a release has
-# to write that file before the tag exists -- otherwise the tag would point at a
-# tree asking for the previous release's binaries. The order is: bump, commit,
-# tag the commit, then build.
+# Nothing in the tree names the version. The tag is the version: the composite
+# action installs the release matching the ref it was pinned to, and the binary
+# reads its own version out of the build information Go stamps in from that same
+# tag. So a release is a tag and a build, with no commit in front of it.
 #
 # There is no moving major tag. `main` is what the README points at and what
 # branch protection covers, and a release tag is immutable; a `v1` that every
@@ -40,16 +40,16 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Pin VERSION and tag it
+      # goreleaser builds from this tag, and -buildvcs=true is what puts it in
+      # the binary; the tag has to exist on the commit before the build runs
+      - name: Tag the commit
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          echo "${VERSION}" > VERSION
           git config user.name  'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -qam "release ${VERSION}"
           git tag -a "${VERSION}" -m "${VERSION}"
-          git push origin HEAD "${VERSION}"
+          git push origin "${VERSION}"
 
       - name: Build and publish
         uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0

@@ -429,6 +429,7 @@ your pull request.
 State       "published" | "publish-failed" | "empty"
 Status      "success" | "failure" — the job that produced the images
 Title       the title input
+Version     the contact-sheet build that wrote the comment
 Repository  "owner/repo"
 SHA         ShortSHA  CommitURL
 Run         .ID  .Number  .Attempt  .URL
@@ -480,6 +481,31 @@ $ contact-sheet --dry-run --path e2e/captures --template-files .github/contact-s
 
 `--dry-run` resolves no pull request, pushes nothing and prints the body it
 would have posted, so a template can be iterated on locally in seconds.
+
+## Which binary the action installs
+
+The ref on the `uses:` line decides, and nothing in this repository records a
+version for it to read:
+
+| `uses: miyamo2/contact-sheet@…` | |
+| --- | --- |
+| a release tag, `v1.2.3` | that release's prebuilt binary, checked against the release's `checksums.txt` |
+| a branch, `main` | built from the branch's current tip with `go install` |
+| a commit sha | built from that commit |
+
+A branch or a commit names no release, so the alternative to building would be
+running some other commit's binary against this one's `action.yml` and
+templates. Building needs Go on the runner: add
+[`actions/setup-go`](https://github.com/actions/setup-go) before the step, or
+pin to a tag and get the prebuilt binary instead. A binary already on `PATH` is
+left alone, which is how this repository's own workflows test the commit under
+review.
+
+Either way the binary is what knows its own version — it reads it out of the
+build information Go stamps in ([`runtime/debug`](https://pkg.go.dev/runtime/debug)),
+which is the release tag for a tagged build and a pseudo-version naming the
+commit for the rest. `contact-sheet --version` prints it, the first line of the
+step's log repeats it, and `.Version` hands it to a template.
 
 ## Inputs
 
