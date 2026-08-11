@@ -24,7 +24,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.status, "status", envString("STATUS", "success"),
 		"outcome of the job that produced the images: success or failure")
 	flag.StringVar(&cfg.refNamespace, "ref-namespace", envString("REF_NAMESPACE", "refs/contact-sheet"),
-		"ref prefix the images are pushed under; must be outside refs/heads/*")
+		"ref prefix the images are pushed under; under refs/, outside refs/heads/* and refs/tags/*")
 	flag.StringVar(&cfg.rowLabel, "row-label", envString("ROW_LABEL", "file name"),
 		"header of the first column of a table built by the table helper")
 	flag.StringVar(&cfg.sha, "sha", envString("SHA", ""),

@@ -193,6 +193,17 @@ for pull requests, under `refs/pull/*`.
 The commit under that ref has no parent, so what gets pushed is the images and
 none of your repository's history.
 
+`ref-namespace` moves that hierarchy, and it is checked before the run collects
+anything — a namespace the push would choke on is worth hearing about before the
+images are gathered and copied, not after. It has to start with `refs/`, name
+something inside it, and be a name `git check-ref-format` accepts. `refs/heads/*`
+and `refs/tags/*` are refused for the reason the table above gives: both are in
+the default fetch refspec, so pushing there hands every clone every image. So
+are the hierarchies with an owner — `refs/remotes/*`, `refs/notes/*`,
+`refs/replace/*`, `refs/stash`, and the ones a forge maintains for itself, among
+them `refs/pull/*`, `refs/merge-requests/*`, `refs/pull-requests/*` and
+`refs/changes/*`. Anywhere else under `refs/` is yours.
+
 One ref per run, never rewritten, so a comment written months ago still
 resolves — the ref is what keeps the objects from being collected. To reclaim
 the space of a pull request that no longer matters:
@@ -542,7 +553,7 @@ step's log repeats it, and `.Version` hands it to a template.
 | `title` | `Contact Sheet` | heading passed to the template |
 | `status` | `success` | outcome of the job that produced the images |
 | `comment-id` | `contact-sheet` | namespaces the comments this action owns |
-| `ref-namespace` | `refs/contact-sheet` | must be outside `refs/heads/*` |
+| `ref-namespace` | `refs/contact-sheet` | under `refs/`, outside `refs/heads/*`, `refs/tags/*` and anything git or the forge owns |
 | `row-label` | `file name` | header of the first column of a `table` |
 | `image-width` | `360` | width on each `<img>`; `0` omits it |
 | `sha` | `GITHUB_SHA` | commit the images belong to; a `workflow_run` job wants `github.event.workflow_run.head_sha` |
