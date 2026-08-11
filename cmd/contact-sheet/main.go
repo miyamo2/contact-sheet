@@ -25,6 +25,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/miyamo2/contact-sheet/internal/collect"
 	"github.com/miyamo2/contact-sheet/internal/ghapi"
@@ -268,7 +269,8 @@ func run(ctx context.Context) error {
 				// the images are still in the run's artifacts, and saying so
 				// beats a red step with no comment at all
 				view.State = render.StatePublishFailed
-				view.Failure = publishErr.Error()
+				view.Failure = failureText(publishErr)
+				// the log gets it whole; only the comment is shaped
 				logf("could not publish: %v", publishErr)
 			} else {
 				view.State = render.StatePublished
@@ -330,6 +332,55 @@ func run(ctx context.Context) error {
 		"comments": strings.Join(ids, ","),
 		"pull":     strconv.Itoa(pull.Number),
 	})
+}
+
+// failureLimit caps the push error a comment carries. Enough of git to
+// recognise which failure this was, short of a page of `remote:` lines becoming
+// the comment.
+const failureLimit = 200
+
+// failureText shapes a push error into something a comment can hold. The value
+// is git's, not the action's: it arrives with newlines, and a rejected push
+// answers in several lines as a matter of course. The default template renders
+// it inside a code span, which a newline or a backtick ends -- and the template
+// is not where that can be known, because a template author is handed a string
+// and has no way to tell which strings came from another program. So it is
+// flattened here, at the one place that does know.
+func failureText(err error) string {
+	if text := oneLine(err.Error(), failureLimit); text != "" {
+		return text
+	}
+	return "the push failed"
+}
+
+// oneLine collapses every run of whitespace and control characters to a single
+// space, drops backticks, and caps the result. Truncation is by rune: half a
+// rune is not something to post.
+func oneLine(text string, limit int) string {
+	var b strings.Builder
+	spaced := true // true to start with, so a leading run is dropped too
+	for _, r := range text {
+		switch {
+		case r == '`':
+			// no replacement: a code span ends at the first one, and what it
+			// quoted is legible without it
+		case unicode.IsSpace(r) || unicode.IsControl(r):
+			if !spaced {
+				b.WriteRune(' ')
+				spaced = true
+			}
+		default:
+			b.WriteRune(r)
+			spaced = false
+		}
+	}
+	out := strings.TrimSuffix(b.String(), " ")
+	if limit > 0 {
+		if runes := []rune(out); len(runes) > limit {
+			out = strings.TrimSuffix(string(runes[:limit]), " ") + "…"
+		}
+	}
+	return out
 }
 
 // namedTemplate is one template file and the key that identifies the comment it
