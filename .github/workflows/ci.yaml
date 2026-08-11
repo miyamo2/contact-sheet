@@ -47,15 +47,16 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # install.sh downloads the release named by VERSION, which does not exist
-      # for a commit under review; building into the directory it installs to
-      # leaves it to find its work already done, the way dogfooding.yaml does
-      - name: Build the binary where the action installs one
+      # no release names the commit under review, and `uses: ./` carries no ref
+      # for install.sh to resolve one from. A binary already on PATH is what it
+      # steps aside for, so this puts the pull request's own there
+      - name: Put the commit's own binary on PATH
         run: |
           set -euo pipefail
-          destination="${RUNNER_TEMP}/contact-sheet-$(tr -d '[:space:]' < VERSION)"
+          destination="${RUNNER_TEMP}/contact-sheet-under-test"
           mkdir -p "${destination}"
           go build -o "${destination}/contact-sheet" ./cmd/contact-sheet
+          echo "${destination}" >> "${GITHUB_PATH}"
 
       # dry-run pushes nothing and comments nothing, so the workflow's read-only
       # token is enough and a fork's pull request runs this like any other

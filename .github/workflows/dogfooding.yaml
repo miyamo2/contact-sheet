@@ -277,17 +277,16 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # the composite action installs the release named by VERSION, which is a
-      # release that does not exist yet for the commit under review. Building
-      # the pull request's binary into the directory install.sh installs to
-      # leaves it to find its work already done -- and makes the comment below
-      # the pull request's own rendering rather than the last release's
-      - name: Build the pull request's binary where the action installs one
+      # no release names the commit under review, and install.sh steps aside for
+      # a binary already on PATH. Putting the pull request's own there is what
+      # makes the comment below its own rendering rather than the last release's
+      - name: Put the pull request's binary on PATH
         run: |
           set -euo pipefail
-          destination="${RUNNER_TEMP}/contact-sheet-$(tr -d '[:space:]' < VERSION)"
+          destination="${RUNNER_TEMP}/contact-sheet-under-test"
           mkdir -p "${destination}"
           go build -o "${destination}/contact-sheet" ./cmd/contact-sheet
+          echo "${destination}" >> "${GITHUB_PATH}"
 
       # a template is entitled to the inputs its own documentation pairs it
       # with; the first column of a table is labelled by an input, and flat and
