@@ -53,8 +53,11 @@ inputs:
     default: contact-sheet
   ref-namespace:
     description: >-
-      Ref prefix the images are pushed under. Must be outside `refs/heads/*` so
-      the images stay out of the default fetch refspec.
+      Ref prefix the images are pushed under. Must start with `refs/` and name a
+      hierarchy nothing else owns: `refs/heads/*` and `refs/tags/*` are fetched
+      by default, which is what this action exists to avoid, and hierarchies git
+      or the forge maintains (`refs/notes/*`, `refs/pull/*`, ...) are refused
+      too. Checked before the run collects anything.
     required: false
     default: refs/contact-sheet
   row-label:
