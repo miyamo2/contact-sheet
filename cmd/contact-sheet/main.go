@@ -142,7 +142,11 @@ func run(ctx context.Context) error {
 		if len(shown) > 5 {
 			shown = shown[:5]
 		}
-		logf("skipped %d file(s) whose name cannot be written into a comment: %q", n, shown)
+		named := make([]string, 0, len(shown))
+		for _, skip := range shown {
+			named = append(named, fmt.Sprintf("%q (%s)", skip.Path, skip.Reason))
+		}
+		logf("skipped %d file(s) that are not an image to publish: %s", n, strings.Join(named, ", "))
 	}
 
 	repository := env("GITHUB_REPOSITORY", "")
