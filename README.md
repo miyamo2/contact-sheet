@@ -10,7 +10,7 @@ Add the step after whatever produces the images:
   id: capture
   run: npm run e2e
 
-- uses: miyamo2/contact-sheet@v1
+- uses: miyamo2/contact-sheet@main
   if: ${{ always() }}
   with:
     path: e2e/captures
@@ -207,7 +207,7 @@ The body is a [text/template](https://pkg.go.dev/text/template). Point
 `template-files` at your own to replace the built-in one:
 
 ```yaml
-- uses: miyamo2/contact-sheet@v1
+- uses: miyamo2/contact-sheet@main
   with:
     path: e2e/captures
     template-files: .github/contact-sheet.tmpl
@@ -239,10 +239,10 @@ An entry is a path in your checkout or an `https://` URL, so the four in this
 repository's [`templates/`](./templates) can be used without copying them:
 
 ```yaml
-- uses: miyamo2/contact-sheet@v1
+- uses: miyamo2/contact-sheet@main
   with:
     path: e2e/captures
-    template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/v1/templates/gallery.tmpl
+    template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/main/templates/gallery.tmpl
 ```
 
 | | |
