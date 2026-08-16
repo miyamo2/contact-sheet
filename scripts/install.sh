@@ -5,12 +5,22 @@
 # which GITHUB_ACTION_REF carries:
 #
 #   a release tag         the release's prebuilt archive, checksum-verified
-#   a branch or a commit  `go install ...@<ref>`, since no release names either
+#   a released commit     the archive of the release whose tag names that commit
+#   any other commit      `go install ...@<ref>`, since no release names it
+#   a branch              the same, built from the branch's tip
 #   nothing at all        the newest release
 #
-# The middle case is the one that keeps the binary and the action in step: a ref
-# with no release behind it would otherwise be run against some other commit's
-# binary. A branch resolves to its own tip, so `@main` gets main.
+# The building cases are the ones that keep the binary and the action in step: a
+# ref with no release behind it would otherwise be run against some other
+# commit's binary. A branch resolves to its own tip, so `@main` gets main.
+#
+# A commit sha is the pin a policy tool rewrites a tag into, so the two name the
+# same code as often as not -- and when they do, the release built from that very
+# commit is the binary the tag would have installed. Looking for it is a couple
+# of API calls and saves the build, and with it the Go the runner would have
+# needed. Only a published release counts: this repository's own release run
+# leaves the assets on a draft, whose download URLs 404 until someone publishes
+# it, so a sha tagged for one is built like any other.
 #
 # No version is written into the tree. A release binary takes its version from
 # the tag it was built on and a source build takes the pseudo-version the module
@@ -21,6 +31,9 @@ set -euo pipefail
 REPOSITORY="miyamo2/contact-sheet"
 API_URL="${GITHUB_API_URL:-https://api.github.com}"
 SERVER_URL="${GITHUB_SERVER_URL:-https://github.com}"
+# what the release workflow accepts as a tag, and so the only tag with an
+# archive behind it
+VERSION_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 
 fetch() {
   # the release endpoints are public, but an unauthenticated runner shares a
@@ -31,6 +44,50 @@ fetch() {
   else
     curl --fail --silent --show-error --location --retry 3 --retry-delay 2 "$@"
   fi
+}
+
+# Prints the release tag of the commit given, if one names it, and nothing at
+# all otherwise -- so its failure is silent by design and the caller falls back
+# to building.
+#
+# The tags endpoint peels annotated tags for us: `commit.sha` there is the
+# commit either kind of tag leads to. Its order is documented nowhere, so the
+# pages are walked rather than the first one read; the cap is a runaway guard,
+# not a limit anything real is expected to reach.
+release_tag_for_commit() {
+  local commit page tags candidate
+  commit="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+
+  for page in 1 2 3 4 5; do
+    tags="$(fetch "${API_URL}/repos/${REPOSITORY}/tags?per_page=100&page=${page}" 2> /dev/null)" \
+      || return 0
+    case "${tags}" in
+      *'"name"'*) ;;
+      *) return 0 ;;
+    esac
+
+    # a tag entry is `"name"` first and its `commit.sha` a few keys later, and
+    # no url in between holds a comma to split on
+    for candidate in $(printf '%s' "${tags}" | tr ',' '\n' \
+      | sed -n 's/.*"name" *: *"\([^"]*\)".*/name \1/p
+                s/.*"sha" *: *"\([^"]*\)".*/sha \1/p' \
+      | awk -v want="${commit}" '
+          $1 == "name" { name = $2; next }
+          $1 == "sha" && name != "" {
+            if (index(tolower($2), want) == 1) { print name }
+            name = ""
+          }'); do
+      # a tag this run cannot download an archive for is not an answer: the one
+      # this repository publishes is the shape the release workflow enforces,
+      # and a release still in draft answers 404 to the tag lookup, which is
+      # exactly the release whose assets are not downloadable yet
+      [[ "${candidate}" =~ ${VERSION_PATTERN} ]] || continue
+      fetch --output /dev/null "${API_URL}/repos/${REPOSITORY}/releases/tags/${candidate}" \
+        2> /dev/null || continue
+      printf '%s\n' "${candidate}"
+      return 0
+    done
+  done
 }
 
 # a binary already on PATH was put there deliberately: this repository's own
@@ -44,8 +101,17 @@ fi
 REF="${GITHUB_ACTION_REF:-}"
 version=""
 source_ref=""
-if [[ "${REF}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+if [[ "${REF}" =~ ${VERSION_PATTERN} ]]; then
   version="${REF}"
+elif [[ "${REF}" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+  # a hex ref this long is a commit sha; a branch or tag named like one would
+  # simply find no tag here and be built, the same as before
+  version="$(release_tag_for_commit "${REF}")"
+  if [[ -n "${version}" ]]; then
+    echo "${REF} is tagged ${version}; using that release rather than building it"
+  else
+    source_ref="${REF}"
+  fi
 elif [[ -n "${REF}" ]]; then
   source_ref="${REF}"
 else
