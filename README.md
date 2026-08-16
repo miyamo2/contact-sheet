@@ -537,12 +537,15 @@ version for it to read:
 | `uses: miyamo2/contact-sheet@…` | |
 | --- | --- |
 | a release tag, `v1.2.3` | that release's prebuilt binary, checked against the release's `checksums.txt` |
+| a commit sha a release tag names | that release's prebuilt binary, the same as pinning the tag |
+| any other commit sha | built from that commit |
 | a branch, `main` | built from the branch's current tip with `go install` |
-| a commit sha | built from that commit |
 
-A branch or a commit names no release, so the alternative to building would be
-running some other commit's binary against this one's `action.yml` and
-templates. Building needs Go on the runner: add
+A sha pin is usually a tag a pinning tool rewrote, and the release built from
+that commit is the binary the tag would have installed. Anything else names no
+release, so the alternative to building would be running some other commit's
+binary against this one's `action.yml` and templates. Building needs Go on the
+runner: add
 [`actions/setup-go`](https://github.com/actions/setup-go) before the step, or
 pin to a tag and get the prebuilt binary instead. A binary already on `PATH` is
 left alone, which is how this repository's own workflows test the commit under
