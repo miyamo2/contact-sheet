@@ -542,11 +542,8 @@ version for it to read:
 | a branch, `main` | built from the branch's current tip |
 
 A sha is what a pinning tool rewrites `@v1.2.3` into, and the release built from
-that very commit is the binary the tag would have installed — so a sha the
-Releases tab already names is downloaded rather than built. The tag has to be
-published: this repository's release run leaves the archives on a draft, and a
-draft's assets are not downloadable, so a sha tagged for a release nobody has
-published yet is built like any other.
+that very commit is the binary the tag would have installed — so a sha a release
+tag names is downloaded rather than built.
 
 Anything else names no release, and the alternative to building would be running
 some other commit's binary against this one's `action.yml` and templates.

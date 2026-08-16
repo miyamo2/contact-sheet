@@ -17,10 +17,7 @@
 # A commit sha is the pin a policy tool rewrites a tag into, so the two name the
 # same code as often as not -- and when they do, the release built from that very
 # commit is the binary the tag would have installed. Looking for it is one
-# listing, and saves the build and the Go the runner would have needed. Only a
-# release whose assets are downloadable counts: this repository's own release run
-# leaves them on a draft, which 404s until someone publishes it, so a sha tagged
-# for one is built like any other.
+# listing, and saves the build and the Go the runner would have needed.
 #
 # No version is written into the tree. A release binary takes its version from
 # the tag it was built on and a source build takes the pseudo-version the module
@@ -47,18 +44,12 @@ fetch() {
 }
 
 # Prints the release tag of the commit given, if one names it, and nothing at
-# all otherwise -- so its failure is silent by design and the caller falls back
-# to building.
+# all otherwise -- so a commit no tag reaches is built, as it was before.
 #
 # The tags endpoint peels annotated tags for us: `commit.sha` there is the
 # commit either kind of tag leads to. Its order is documented nowhere, so the
 # pages are walked rather than the first one read; the cap is a runaway guard,
 # not a limit anything real is expected to reach.
-#
-# What settles a candidate is downloading the release's checksums, which is the
-# file the install verifies the archive against -- so the tag is answered with
-# the request that would have been made for it anyway, and the listing is the
-# only call this costs that a tag on the `uses:` line would not.
 release_tag_for_commit() {
   local commit page tags candidate
   commit="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -82,18 +73,7 @@ release_tag_for_commit() {
             if (index(tolower($2), want) == 1) { print name }
             name = ""
           }'); do
-      # a tag this run cannot download from is not an answer: the version shape
-      # is the one the release workflow enforces, and the assets of a release
-      # still in draft -- which is where this repository's own release run
-      # leaves them until someone publishes it -- answer 404 here
       [[ "${candidate}" =~ ${VERSION_PATTERN} ]] || continue
-      if ! fetch --output "${work}/checksums.txt" \
-        "${SERVER_URL}/${REPOSITORY}/releases/download/${candidate}/checksums.txt" \
-        2> /dev/null; then
-        # curl makes the file before it learns the response is a 404
-        rm -f "${work}/checksums.txt"
-        continue
-      fi
       printf '%s\n' "${candidate}"
       return 0
     done
@@ -107,11 +87,6 @@ if command -v contact-sheet > /dev/null 2>&1; then
   echo "contact-sheet already on PATH: $(command -v contact-sheet)"
   exit 0
 fi
-
-# before the ref is resolved rather than after: resolving a sha downloads the
-# release's checksums to decide, and what it leaves here is what installs it
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
 
 REF="${GITHUB_ACTION_REF:-}"
 version=""
@@ -151,6 +126,9 @@ if [[ -x "${DESTINATION}/contact-sheet" || -x "${DESTINATION}/contact-sheet.exe"
 fi
 mkdir -p "${DESTINATION}"
 
+work="$(mktemp -d)"
+trap 'rm -rf "${work}"' EXIT
+
 install_release() {
   case "${RUNNER_OS:-Linux}" in
     Linux)   os=linux   ;;
@@ -170,10 +148,7 @@ install_release() {
 
   echo "downloading ${archive} (${version})"
   fetch --output "${work}/${archive}" "${base}/${archive}"
-  # already here when a sha was resolved: that download is what named the tag
-  # this version came from, and it came from this same release
-  [[ -s "${work}/checksums.txt" ]] \
-    || fetch --output "${work}/checksums.txt" "${base}/checksums.txt"
+  fetch --output "${work}/checksums.txt" "${base}/checksums.txt"
 
   # a release asset is served without any integrity guarantee of its own; the
   # checksums file is signed into the release by the same run that built it
