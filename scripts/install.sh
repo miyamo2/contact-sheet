@@ -5,19 +5,13 @@
 # which GITHUB_ACTION_REF carries:
 #
 #   a release tag         the release's prebuilt archive, checksum-verified
-#   a released commit     the archive of the release whose tag names that commit
-#   any other commit      `go install ...@<ref>`, since no release names it
-#   a branch              the same, built from the branch's tip
+#   a tagged commit       that tag's archive; a sha pin is usually a rewritten tag
+#   any other ref         `go install ...@<ref>`, since no release names it
 #   nothing at all        the newest release
 #
-# The building cases are the ones that keep the binary and the action in step: a
-# ref with no release behind it would otherwise be run against some other
-# commit's binary. A branch resolves to its own tip, so `@main` gets main.
-#
-# A commit sha is the pin a policy tool rewrites a tag into, so the two name the
-# same code as often as not -- and when they do, the release built from that very
-# commit is the binary the tag would have installed. Looking for it is one
-# listing, and saves the build and the Go the runner would have needed.
+# Building is what keeps the binary and the action in step: a ref with no release
+# behind it would otherwise be run against some other commit's binary. A branch
+# resolves to its own tip, so `@main` gets main.
 #
 # No version is written into the tree. A release binary takes its version from
 # the tag it was built on and a source build takes the pseudo-version the module
@@ -28,8 +22,7 @@ set -euo pipefail
 REPOSITORY="miyamo2/contact-sheet"
 API_URL="${GITHUB_API_URL:-https://api.github.com}"
 SERVER_URL="${GITHUB_SERVER_URL:-https://github.com}"
-# what the release workflow accepts as a tag, and so the only tag with an
-# archive behind it
+# the tag shape the release workflow accepts, and so the only one with an archive
 VERSION_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 
 fetch() {
@@ -43,13 +36,10 @@ fetch() {
   fi
 }
 
-# Prints the release tag of the commit given, if one names it, and nothing at
-# all otherwise -- so a commit no tag reaches is built, as it was before.
-#
-# The tags endpoint peels annotated tags for us: `commit.sha` there is the
-# commit either kind of tag leads to. Its order is documented nowhere, so the
-# pages are walked rather than the first one read; the cap is a runaway guard,
-# not a limit anything real is expected to reach.
+# Prints the release tag naming the commit given, and nothing at all otherwise.
+# `commit.sha` from the tags endpoint is peeled, so an annotated tag answers like
+# a lightweight one, and the endpoint's order is documented nowhere, so the pages
+# are walked -- five of them, which nothing real is expected to reach.
 release_tag_for_commit() {
   local commit page tags candidate
   commit="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -62,8 +52,8 @@ release_tag_for_commit() {
       *) return 0 ;;
     esac
 
-    # a tag entry is `"name"` first and its `commit.sha` a few keys later, and
-    # no url in between holds a comma to split on
+    # a tag entry is `"name"` first and `commit.sha` a few keys later, and no
+    # url between them holds a comma to split on
     for candidate in $(printf '%s' "${tags}" | tr ',' '\n' \
       | sed -n 's/.*"name" *: *"\([^"]*\)".*/name \1/p
                 s/.*"sha" *: *"\([^"]*\)".*/sha \1/p' \
@@ -94,8 +84,8 @@ source_ref=""
 if [[ "${REF}" =~ ${VERSION_PATTERN} ]]; then
   version="${REF}"
 elif [[ "${REF}" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
-  # a hex ref this long is a commit sha; a branch or tag named like one would
-  # simply find no tag here and be built, the same as before
+  # a hex ref this long is a commit sha; anything else shaped like one finds no
+  # tag and is built, as before
   version="$(release_tag_for_commit "${REF}")"
   if [[ -n "${version}" ]]; then
     echo "${REF} is tagged ${version}; using that release rather than building it"

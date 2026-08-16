@@ -538,20 +538,18 @@ version for it to read:
 | --- | --- |
 | a release tag, `v1.2.3` | that release's prebuilt binary, checked against the release's `checksums.txt` |
 | a commit sha a release tag names | that release's prebuilt binary, the same as pinning the tag |
-| any other commit sha | built from that commit with `go install` |
-| a branch, `main` | built from the branch's current tip |
+| any other commit sha | built from that commit |
+| a branch, `main` | built from the branch's current tip with `go install` |
 
-A sha is what a pinning tool rewrites `@v1.2.3` into, and the release built from
-that very commit is the binary the tag would have installed — so a sha a release
-tag names is downloaded rather than built.
-
-Anything else names no release, and the alternative to building would be running
-some other commit's binary against this one's `action.yml` and templates.
-Building needs Go on the runner: add
+A sha pin is usually a tag a pinning tool rewrote, and the release built from
+that commit is the binary the tag would have installed. Anything else names no
+release, so the alternative to building would be running some other commit's
+binary against this one's `action.yml` and templates. Building needs Go on the
+runner: add
 [`actions/setup-go`](https://github.com/actions/setup-go) before the step, or
-pin to a release and get the prebuilt binary instead. A binary already on `PATH`
-is left alone, which is how this repository's own workflows test the commit
-under review.
+pin to a tag and get the prebuilt binary instead. A binary already on `PATH` is
+left alone, which is how this repository's own workflows test the commit under
+review.
 
 Either way the binary is what knows its own version — it reads it out of the
 build information Go stamps in ([`runtime/debug`](https://pkg.go.dev/runtime/debug)),
