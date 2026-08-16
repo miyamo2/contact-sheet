@@ -57,17 +57,16 @@ type config struct {
 // skipReason says why a pull request is not one to comment on, or "" when it
 // is.
 //
-// A fork is the interesting case. The action skips one by default not because
-// of anything about the pull request but because of the token it is usually
-// holding: a `pull_request` run on a fork's pull request gets a read-only
-// GITHUB_TOKEN, which can neither push the ref nor write the comment, and
-// failing halfway through is a worse answer than saying so up front. A workflow
-// that holds the base repository's token instead -- an issue_comment or
-// workflow_run run, or one handed a PAT -- has none of that problem, and
-// --allow-fork is how it says so.
+// A fork is the interesting case. The action skips one by default because of
+// the token the run tends to hold rather than anything about the pull request:
+// a `pull_request` run on a fork's pull request gets a read-only GITHUB_TOKEN,
+// which can neither push the ref nor write the comment, and failing halfway
+// through is a worse answer than saying so up front. A workflow that holds the
+// base repository's token instead, an issue_comment or workflow_run run or one
+// handed a PAT, has none of that problem, and --allow-fork is how it says so.
 //
-// What --allow-fork does not do is make running a fork's code safe. That is the
-// calling workflow's problem, and the reason the one in this repository asks a
+// --allow-fork does not make running a fork's code safe. That is the calling
+// workflow's problem, and the reason the one in this repository asks a
 // maintainer to type the command first.
 func skipReason(pull *ghapi.PullRequest, allowFork bool) string {
 	switch {
@@ -194,9 +193,9 @@ func run(ctx context.Context) error {
 		if reason := skipReason(pull, cfg.allowFork); reason != "" {
 			logf("%s", reason)
 			// the fork case is worth saying out loud, and only that one: a
-			// green job that quietly did nothing looks exactly like one that
-			// worked, and the log of a job that passed is not somewhere
-			// anybody goes looking. A closed pull request is expected
+			// green job that did nothing looks like one that worked, and the
+			// log of a job that passed is not somewhere anybody goes looking.
+			// A closed pull request is expected
 			if pull.FromFork() && !cfg.allowFork {
 				notice(fmt.Sprintf(
 					"No comment on #%d: it comes from a fork, and allow-fork is not set.", pull.Number))
@@ -207,8 +206,8 @@ func run(ctx context.Context) error {
 
 		// --allow-fork asserts that this run holds the base repository's token
 		// rather than the fork's. Asking once whether that is true costs one
-		// request and turns the alternative -- collect everything, then a 403
-		// from git push -- into a skip that names what is wrong. Not being able
+		// request and turns the alternative, collect everything and then a 403
+		// from git push, into a skip that names what is wrong. Not being able
 		// to ask is no reason to stop: the run was authorised either way, and
 		// the push reports the truth soon enough
 		if pull.FromFork() && cfg.allowFork {
@@ -348,10 +347,10 @@ const failureLimit = 200
 // failureText shapes a push error into something a comment can hold. The value
 // is git's, not the action's: it arrives with newlines, and a rejected push
 // answers in several lines as a matter of course. The default template renders
-// it inside a code span, which a newline or a backtick ends -- and the template
-// is not where that can be known, because a template author is handed a string
-// and has no way to tell which strings came from another program. So it is
-// flattened here, at the one place that does know.
+// it inside a code span, which a newline or a backtick ends, and the template
+// cannot know that, because a template author is handed a string and has no way
+// to tell which strings came from another program. This flattens it here, at
+// the one place that does know.
 func failureText(err error) string {
 	if text := oneLine(err.Error(), failureLimit); text != "" {
 		return text
@@ -425,9 +424,9 @@ func templatesOf(ctx context.Context, cfg config) ([]namedTemplate, error) {
 }
 
 // remoteTemplateLimit caps a fetched body. A template has to render into a
-// 65536-character comment, so anything approaching a megabyte is a wrong URL --
-// an HTML error page, or a file that is not a template -- and reading it all
-// before finding that out is what the cap prevents.
+// 65536-character comment, so anything approaching a megabyte is a wrong URL,
+// an HTML error page or a file that is not a template, and the cap stops this
+// from reading all of it before finding that out.
 const remoteTemplateLimit = 1 << 20
 
 // loadTemplate reads a template from disk, or over HTTPS when the entry is a

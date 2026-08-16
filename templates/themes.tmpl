@@ -1,5 +1,5 @@
 {{/*
-themes -- one row per screen, one column per theme.
+themes: one row per screen, one column per theme.
 
 Needs a layout naming those two captures, e.g.
 
@@ -21,7 +21,7 @@ https://github.com/miyamo2/contact-sheet#writing-the-comment
 {{ end }}
 <sub>Kept on `{{ .Ref }}`, outside the default fetch refspec.</sub>
 {{- else if eq .State "publish-failed" }}
-{{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
+This run collected {{ .Total }} images, but publishing them failed (`{{ .Failure }}`).
 {{- else }}
 This run produced no images.
 {{- end }}

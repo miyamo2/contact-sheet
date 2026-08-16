@@ -1,5 +1,5 @@
 {{/*
-gallery -- images inline, no table.
+gallery: images inline, no table.
 
 One folded section per directory, images laid side by side and wrapped by the
 browser. Nothing here reads a capture, so it works against any layout, or none.
@@ -24,7 +24,7 @@ https://github.com/miyamo2/contact-sheet#writing-the-comment
 
 <sub>Kept on `{{ .Ref }}`, outside the default fetch refspec.</sub>
 {{- else if eq .State "publish-failed" }}
-{{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`). They are in the artifacts on [the run]({{ .Run.URL }}).
+This run collected {{ .Total }} images, but publishing them failed (`{{ .Failure }}`). They are in the artifacts on [the run]({{ .Run.URL }}).
 {{- else }}
 This run produced no images.
 {{- end }}

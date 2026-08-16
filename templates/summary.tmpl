@@ -1,5 +1,5 @@
 {{/*
-summary -- counts and links, no images.
+summary: counts and links, no images.
 
 Small enough to stay readable at the top of a long pull request, and useful as
 the first of several templates:
@@ -22,7 +22,7 @@ https://github.com/miyamo2/contact-sheet#writing-the-comment
 {{ end }}
 {{ .Total }} in total, on `{{ .Ref }}`.
 {{- else if eq .State "publish-failed" }}
-{{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
+This run collected {{ .Total }} images, but publishing them failed (`{{ .Failure }}`).
 {{- else }}
 This run produced no images.
 {{- end }}

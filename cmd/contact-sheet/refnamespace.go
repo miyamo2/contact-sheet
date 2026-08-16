@@ -13,14 +13,14 @@ type reserved struct {
 	reason string
 }
 
-// The first two are the ones somebody actually reaches for, and the whole
-// design of this action is an argument against them, so each gets the argument
-// back rather than a rule. The rest have an owner: git or the forge writes its
-// own refs there and expects to be the only one doing it, so a push under one
-// is refused, rewritten, or -- worse -- taken and acted on.
+// The first two are the ones somebody reaches for, and the whole design of this
+// action is an argument against them, so each gets the argument back rather than
+// a rule. The rest have an owner: git or the forge writes its own refs there and
+// expects to be the only one doing it, so a push under one is refused,
+// rewritten, or worse, taken and acted on.
 var reservedNamespaces = []reserved{
 	{"refs/heads", "that is where branches live, and git fetch takes refs/heads/* by default, " +
-		"so every clone and pull of the repository would carry every image, indefinitely -- " +
+		"so every clone and pull of the repository would carry every image and keep carrying it, " +
 		"the one outcome this action exists to avoid"},
 	{"refs/tags", "that is where tags live; git fetches those by default too, and one tag per run " +
 		"would bury the repository's tag list under screenshots"},
@@ -44,7 +44,7 @@ var reservedNamespaces = []reserved{
 }
 
 // suggestion is the default, and the shape of an answer for anybody who has
-// just been told their value is not one.
+// been told their value is not one.
 const suggestion = "refs/contact-sheet"
 
 // checkRefNamespace validates --ref-namespace and returns it with any trailing
@@ -61,9 +61,9 @@ const suggestion = "refs/contact-sheet"
 // validating the namespace alone is validating the ref: every component
 // appended to it is generated here and is a name git accepts. Checking the
 // namespace as though it were a whole ref is a shade stricter than git would be
-// on the composed one -- a namespace ending in a dot is refused, where the
-// composed ref would not end there -- and a namespace ending in a dot is
-// nobody's intention anyway.
+// on the composed one, since it refuses a namespace ending in a dot where the
+// composed ref would not end there, and a namespace ending in a dot is no one's
+// intention.
 func checkRefNamespace(value string) (string, error) {
 	const flag = "--ref-namespace"
 

@@ -19,7 +19,7 @@
 // reachable from any branch.
 //
 // One ref per run, never rewritten, so a comment written months ago still
-// resolves -- the ref is what keeps the objects from being collected.
+// resolves: the ref is what keeps git from collecting the objects.
 package publish
 
 import (
@@ -38,13 +38,13 @@ type Options struct {
 	// Root is the directory Paths are relative to.
 	Root string
 	// Paths are slash-separated paths under Root, and become the paths in the
-	// commit -- so a URL is rawURL/repository/commit/path.
+	// commit, so a URL is rawURL/repository/commit/path.
 	Paths []string
 	// Ref is the full ref to push to, e.g. refs/contact-sheet/pr-42/1234.1.
 	Ref        string
 	Repository string
 	// Token authenticates the push. It never reaches the remote URL or a
-	// command line -- see writeAuthConfig.
+	// command line; see writeAuthConfig.
 	Token string
 	// ServerURL is where the push goes; GITHUB_SERVER_URL on GHES.
 	ServerURL string
@@ -52,9 +52,9 @@ type Options struct {
 	Attempts  int
 }
 
-// Publish commits the images in a scratch repository -- the checkout the
-// workflow is standing in is never touched -- and pushes that single parentless
-// commit. Returns the commit sha the URLs will point at.
+// Publish commits the images in a scratch repository, leaving the checkout the
+// workflow is standing in untouched, and pushes that single parentless commit.
+// Returns the commit sha the URLs will point at.
 func Publish(ctx context.Context, o Options) (string, error) {
 	if len(o.Paths) == 0 {
 		return "", fmt.Errorf("publish: nothing to publish")
@@ -137,13 +137,13 @@ func remoteURL(serverURL, repository string) string {
 // anonymise-me-if-you-please error message away from the outside; as `git -c
 // http.extraheader=…` or `git config <key> <value>` it would sit in a command
 // line for as long as the process lives, and /proc shows a command line to every
-// process on the runner. What is left is the file: the config of a repository in
-// a private temporary directory, which the deferred RemoveAll takes away with
+// process on the runner. That leaves the file: the config of a repository in a
+// private temporary directory, which the deferred RemoveAll takes away with
 // everything else.
 //
 // The header is scoped to the server it authenticates to, so a redirect
-// elsewhere does not carry it. A remote that is not http(s) -- a local path, as
-// the tests push to -- takes no credential at all.
+// elsewhere does not carry it. A remote that is not http(s), a local path as
+// the tests push to, takes no credential at all.
 func writeAuthConfig(work, serverURL, token string) error {
 	base := strings.TrimSuffix(serverURL, "/")
 	overHTTP := strings.HasPrefix(base, "https://") || strings.HasPrefix(base, "http://")
@@ -169,8 +169,9 @@ func writeAuthConfig(work, serverURL, token string) error {
 
 // git runs a command and returns stdout. stderr becomes the error: it is git's
 // own words about what went wrong, and the caller shapes it before it goes
-// anywhere a person reads. Nothing here carries the token -- not the arguments,
-// not the remote URL -- so a message that escapes the log is only ever a message.
+// anywhere a person reads. Nothing here carries the token, neither the
+// arguments nor the remote URL, so a message that escapes the log is a message
+// and nothing more.
 //
 // GIT_TERMINAL_PROMPT stops a rejected push from waiting on a username: with the
 // credential out of the URL, git would otherwise have somewhere to ask.
