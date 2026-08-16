@@ -4,9 +4,9 @@
 {{ if eq .State "published" }}
 {{ range groupBy .Images "dir" }}{{ if .Key }}{{ details (printf "<b>%s</b> · %d images" .Key (len .Images)) (table .Images "name" "" "" "image") }}{{ else }}{{ table .Images "name" "" "" "image" }}{{ end }}
 {{ end }}
-<sub>Kept on `{{ .Ref }}`, outside the default fetch refspec — no clone or pull carries these.</sub>
+<sub>Kept on `{{ .Ref }}`, outside the default fetch refspec, so no clone or pull carries these.</sub>
 {{- else if eq .State "publish-failed" -}}
-{{ .Total }} images were collected, but pushing them failed (`{{ .Failure }}`). They are in the artifacts on [the run]({{ .Run.URL }}).
+This run collected {{ .Total }} images, but pushing them failed (`{{ .Failure }}`). They are in the artifacts on [the run]({{ .Run.URL }}).
 {{- else -}}
-No images under the configured path matched the layout — see [the logs]({{ .Run.URL }}).
+No images under the configured path matched the layout. See [the logs]({{ .Run.URL }}).
 {{- end }}

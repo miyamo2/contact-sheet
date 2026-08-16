@@ -4,13 +4,13 @@
 // placement: it filters, and it extracts. A file the expression does not match
 // is skipped, and the named captures it does match become that image's Match
 // map for a template to group and order by. The names are the template author's
-// to choose -- collect attaches no meaning to any of them.
+// to choose, and collect attaches no meaning to any of them.
 //
-// Without an expression every file whose extension looks like an image is
-// collected, and a template still has Dir and Name to work with.
+// Without an expression it collects every file whose extension looks like an
+// image, and a template still has Dir and Name to work with.
 //
-// Neither the expression nor the extension is taken at its word. What a file is
-// named is not what a file is, and on a pull request from a fork the names are
+// collect takes neither the expression nor the extension at its word. A name is
+// no evidence about contents, and on a pull request from a fork the names are
 // the contributor's to choose, so a collected file also has to be a symlink-free
 // regular file whose leading bytes are the picture its extension promises.
 package collect
@@ -47,8 +47,8 @@ var imageExtensions = map[string]string{
 
 // imageContentTypes is the same set read from the other end: what a collected
 // file's leading bytes may be. A layout matches on the path rather than the
-// extension, so a file it picks need not carry an extension this package knows
-// -- but it does still have to be one of these pictures.
+// extension, so a file it picks need not carry an extension this package knows,
+// but it does still have to be one of these pictures.
 var imageContentTypes = func() map[string]bool {
 	set := make(map[string]bool, len(imageExtensions))
 	for _, contentType := range imageExtensions {
@@ -72,8 +72,8 @@ type Result struct {
 	Paths []string
 	Total int
 	// Skipped lists the files that the layout or the extension picked out and
-	// something else then refused, so the caller can say so rather than have
-	// them go missing quietly.
+	// something else then refused, so the caller can say so rather than let
+	// them go missing in silence.
 	Skipped []Skip
 }
 
@@ -91,9 +91,9 @@ const (
 )
 
 // unsafeInPath is the set of characters a collected path may not contain. A
-// path is written into the comment as text -- a table cell, a code span, the
-// summary of a <details> -- and each of these ends the construct it was written
-// into and begins another: a second cell, a tag, a link.
+// template writes a path into the comment as text, in a table cell, a code
+// span, or the summary of a <details>, and each of those ends the construct
+// holding it and begins another: a second cell, a tag, a link.
 //
 // It matters because the path is not the action's to choose. The images come
 // out of a directory the workflow points at, and on a pull request from a fork
@@ -104,22 +104,22 @@ const unsafeInPath = "`|<>\"\\[]"
 
 // Safe reports whether a slash-separated relative path can be written into a
 // comment body as it stands. Control characters and anything that is not valid
-// UTF-8 are out for the same reason as the punctuation: what a comment does
-// with them is not predictable enough to find out on someone's pull request.
+// UTF-8 are out for the same reason as the punctuation: a comment's handling of
+// them is too unpredictable to find out on someone's pull request.
 func Safe(rel string) bool {
 	return utf8.ValidString(rel) &&
 		!strings.ContainsAny(rel, unsafeInPath) &&
 		strings.IndexFunc(rel, unicode.IsControl) < 0
 }
 
-// Collect walks Root. Files that the layout does not match are skipped in
-// silence -- a captures directory holding a stray .gitkeep or a trace should not
-// fail the run -- and the images come back sorted by path so two runs over the
+// Collect walks Root. It skips the files the layout does not match in silence,
+// since a captures directory holding a stray .gitkeep or a trace should not
+// fail the run, and returns the images sorted by path so two runs over the
 // same directory produce the same comment.
 //
 // A file the layout or the extension did pick still has to be a regular file,
 // not a symlink, with a name a comment can hold and the bytes its extension
-// promises. Those four go to Skipped rather than being dropped in silence.
+// promises. Those four go to Skipped rather than disappearing in silence.
 func Collect(o Options) (Result, error) {
 	var (
 		images  []sheet.Image
@@ -216,11 +216,11 @@ const sniffLimit = 512
 // that has a directory full of others, and the log names it either way.
 //
 // The stated extension is what the bytes are held against, because a name that
-// says .png and bytes that say something else is the case worth catching -- a
-// comment shows what the bytes are, and a browser handed a picture where the
-// path said one thing and the content another is a place nobody needs to go.
-// Under a layout the extension may be one this package knows nothing about, and
-// then it is enough that the bytes are an image at all.
+// says .png over bytes that say something else is the case worth catching: a
+// comment renders what the bytes are, and a reviewer should not discover the
+// mismatch by opening the link. Under a layout the extension may be one this
+// package knows nothing about, and then it is enough that the bytes are an
+// image at all.
 func contentReason(p, ext string) string {
 	got, err := detect(p)
 	if err != nil {
@@ -243,7 +243,7 @@ func contentReason(p, ext string) string {
 // included, so this needs nothing beyond the standard library.
 //
 // Opening the file is only safe because the symlink is already out by the time
-// this is called: os.Open follows one.
+// the caller reaches this: os.Open follows one.
 func detect(name string) (string, error) {
 	file, err := os.Open(name)
 	if err != nil {

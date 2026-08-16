@@ -7,10 +7,10 @@ branding:
 
 # A description is template text like every other string in this file: GitHub
 # scans it for expressions, and none of the contexts a workflow has exist while
-# the metadata is being loaded, so one left in prose is not quoted -- it is a
+# GitHub loads the metadata, so one left in prose is no quotation: it is a
 # validation error that fails the whole file, and every job using the action
-# with it. An input usually filled from an expression therefore names its
-# context path bare here, without the delimiters wrapped around it.
+# with it. An input filled from an expression therefore names its context path
+# bare here, without the delimiters wrapped around it.
 inputs:
   path:
     description: Directory of images to attach.
@@ -18,7 +18,7 @@ inputs:
   layout:
     description: >-
       Expression matched against each image's slash-separated path under `path`.
-      It filters -- a file it does not match is skipped -- and its named captures
+      It filters, skipping a file it does not match, and its named captures
       become that image's metadata for a template to group and order by. The
       names are yours; the action reads none of them. Empty, the default,
       collects every file that looks like an image.
@@ -27,7 +27,7 @@ inputs:
   template-files:
     description: >-
       Comma-separated Go text/template entries, each producing one comment, in
-      the order given. An entry is a path in the checkout or an https:// URL --
+      the order given. An entry is a path in the checkout or an https:// URL;
       the ready-made ones live in this action's `templates/` directory. This is
       how you control how many comments a run writes: a body over GitHub's
       65536-character limit is an error, and the fix is another template.
@@ -41,7 +41,7 @@ inputs:
   status:
     description: >-
       Outcome of the job that produced the images, `success` or `failure`.
-      Usually an expression over `steps.<id>.outcome`.
+      Takes an expression over `steps.<id>.outcome`.
     required: false
     default: success
   comment-id:
@@ -53,7 +53,7 @@ inputs:
     default: contact-sheet
   ref-namespace:
     description: >-
-      Ref prefix the images are pushed under. Must start with `refs/` and name a
+      Ref prefix the action pushes the images under. Must start with `refs/` and name a
       hierarchy nothing else owns: `refs/heads/*` and `refs/tags/*` are fetched
       by default, which is what this action exists to avoid, and hierarchies git
       or the forge maintains (`refs/notes/*`, `refs/pull/*`, ...) are refused
@@ -70,10 +70,10 @@ inputs:
     default: '360'
   sha:
     description: >-
-      Commit the images belong to: the one shown in the status line, and the one
-      the pull request is resolved from. Empty takes `GITHUB_SHA`, which is right
-      for every event except `workflow_run` -- there the job stands on the default
-      branch, and this wants an expression over
+      Commit the images belong to: the one the status line shows, and the one
+      the action resolves the pull request from. Empty takes `GITHUB_SHA`, which
+      is right for every event except `workflow_run`, where the job stands on
+      the default branch and this wants an expression over
       `github.event.workflow_run.head_sha`.
     required: false
     default: ''
@@ -87,15 +87,15 @@ inputs:
     default: 'false'
   allow-fork:
     description: >-
-      Comment on a pull request from a fork. Skipped by default because a
-      `pull_request` run on one has a read-only token that can neither push the
-      ref nor write the comment. Set this only where github-token can write to
-      the base repository -- an `issue_comment` or `workflow_run` workflow, or a
-      PAT -- and only where something has decided that running that pull
-      request's code is acceptable. The first of those is checked: a run whose
-      token turns out not to be writable skips and says so, rather than
-      collecting the images and stopping on the push. The second is not, and
-      cannot be.
+      Comment on a pull request from a fork. The action skips one by default
+      because a `pull_request` run on it has a read-only token that can neither
+      push the ref nor write the comment. Set this only where github-token can
+      write to the base repository, from an `issue_comment` or `workflow_run`
+      workflow or a PAT, and only where somebody has decided that running that
+      pull request's code is acceptable. The action checks the first of those: a
+      run whose token turns out not to be writable skips and says so, rather
+      than collecting the images and stopping on the push. Nothing can check the
+      second.
     required: false
     default: 'false'
   github-token:
@@ -114,13 +114,13 @@ outputs:
     description: Number of images in the comment.
     value: ${{ steps.contact-sheet.outputs.total }}
   ref:
-    description: Ref the images were pushed to, when state is `published`.
+    description: Ref the action pushed the images to, when state is `published`.
     value: ${{ steps.contact-sheet.outputs.ref }}
   commit:
     description: Commit holding the images, when state is `published`.
     value: ${{ steps.contact-sheet.outputs.commit }}
   comments:
-    description: Comma-separated ids of the comments written, in template order.
+    description: Comma-separated ids of the comments the run wrote, in template order.
     value: ${{ steps.contact-sheet.outputs.comments }}
   pull:
     description: Pull request commented on.

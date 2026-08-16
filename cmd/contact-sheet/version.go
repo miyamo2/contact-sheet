@@ -13,7 +13,7 @@ import (
 // into every binary rather than from a variable set with -ldflags. Go embeds
 // the main module's version and the commit it was built from, so a release
 // binary names its own tag without a release having to write that tag into a
-// file in the tree first -- which is the whole reason there is no VERSION file
+// file in the tree first, which is the whole reason there is no VERSION file
 // any more.
 var build = readBuildInfo()
 
@@ -22,8 +22,8 @@ var build = readBuildInfo()
 // Version is the main module's version. Built from a checkout standing on a
 // tag it is that tag; installed with `go install ...@<commit>` it is the
 // pseudo-version the module proxy assigns that commit; built from a tree with
-// no version control around it -- which is what a `go build` in a source
-// tarball is -- it is "(devel)", and Revision is empty with it. That last case
+// no version control around it, which is what a `go build` in a source tarball
+// is, it is "(devel)", and Revision is empty with it. That last case
 // is why Revision is printed at all: it is the only thing left that identifies
 // such a build.
 type buildInfo struct {
@@ -64,7 +64,7 @@ func readBuildInfo() buildInfo {
 // Short is the one-line form. The version leads and the commit follows it only
 // where it adds something: a pseudo-version already ends in the commit it was
 // built from, and the toolchain has already marked a modified tree there, but a
-// tag -- or "(devel)" -- names no commit at all.
+// tag, or "(devel)", names no commit at all.
 func (b buildInfo) Short() string {
 	if b.Revision == "" || strings.Contains(b.Version, short(b.Revision)) {
 		return b.Version

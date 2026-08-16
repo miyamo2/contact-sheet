@@ -1,6 +1,6 @@
 // Package ghapi is a four-endpoint GitHub REST client.
 //
-// Deliberately not go-github: this reaches for pulls-for-a-commit and the issue
+// Not go-github, on purpose: this reaches for pulls-for-a-commit and the issue
 // comment CRUD and nothing else, and staying dependency-free keeps the release
 // binaries reproducible from the standard library alone.
 package ghapi
@@ -100,10 +100,10 @@ func (p PullRequest) FromFork() bool {
 //
 // This decides nothing on its own. --allow-fork is what permits a fork's pull
 // request, because whether a stranger's code should produce a comment here is a
-// judgement no endpoint can return. What this answers is the narrower question
-// of whether the claim --allow-fork makes about the token holds -- so that a
-// run which cannot possibly succeed says why, instead of collecting everything
-// and stopping on a 403 from git push.
+// judgement no endpoint can return. This answers the narrower question of
+// whether the claim --allow-fork makes about the token holds, so that a run
+// which cannot succeed says why, instead of collecting everything and stopping
+// on a 403 from git push.
 func (c *Client) Writable(ctx context.Context) (bool, error) {
 	var repo struct {
 		Permissions struct {

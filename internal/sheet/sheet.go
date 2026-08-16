@@ -1,11 +1,11 @@
 // Package sheet holds the one model every stage of the run shares: a flat list
 // of images.
 //
-// It is deliberately flat. An earlier version carried groups, rows and columns,
-// which made "render a table" the only thing the action could do -- the shape of
-// the output was decided in Go, and a template could only fill it in. Grouping
-// is presentation, so it belongs to whoever writes the template; what the action
-// owes them is each image's location and whatever the layout expression learned
+// It is flat on purpose. An earlier version carried groups, rows and columns,
+// which made "render a table" the only thing the action could do: Go decided
+// the shape of the output, and a template could only fill it in. Grouping is
+// presentation, so it belongs to whoever writes the template, and the action
+// owes them each image's location and whatever the layout expression learned
 // about it.
 package sheet
 

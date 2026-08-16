@@ -1,8 +1,8 @@
 {{/*
-flat -- every image in one table, no grouping.
+flat: every image in one table, no grouping.
 
 For a directory with no structure worth folding. Rows are full paths, so a
-nested file still reads unambiguously -- name the column to match:
+nested file still reads without ambiguity. Name the column to match:
 
   row-label: path
   template-files: https://raw.githubusercontent.com/miyamo2/contact-sheet/main/templates/flat.tmpl
@@ -17,7 +17,7 @@ https://github.com/miyamo2/contact-sheet#writing-the-comment
 {{ if .Published }}
 {{ table .Images "path" "" "" "image" }}
 {{- else if eq .State "publish-failed" }}
-{{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
+This run collected {{ .Total }} images, but publishing them failed (`{{ .Failure }}`).
 {{- else }}
 This run produced no images.
 {{- end }}

@@ -2,12 +2,12 @@
 //
 // text/template, not html/template: the output is Markdown destined for a
 // GitHub comment, and GitHub sanitises it on the way in. html/template would
-// escape the URLs and tags this deliberately emits.
+// escape the URLs and tags this emits on purpose.
 //
-// The template decides the shape of the comment. What this package supplies is
-// the images, the run's identifiers, and helpers general enough to build a
-// table, a list, or a paragraph with three pictures in it -- none of which the
-// package prefers.
+// The template decides the shape of the comment. This package supplies the
+// images, the run's identifiers, and helpers general enough to build a table, a
+// list, or a paragraph with three pictures in it, and prefers none of the
+// three.
 package render
 
 import (
@@ -65,7 +65,7 @@ type Context struct {
 	Title  string
 
 	// Version is the contact-sheet build that wrote the comment, as the binary
-	// reads it off its own build information -- a release tag, or a
+	// reads it off its own build information: a release tag, or a
 	// pseudo-version and commit for a build off one.
 	Version string
 
@@ -180,7 +180,7 @@ func (r *Renderer) img(v any) string {
 // gives a single unnamed column. colOrder is a comma-separated list of column
 // names to put first, and anything unlisted follows lexically. colDefault is
 // the column for an image whose colField is empty, which an empty colField
-// makes true of every image -- that is how one column gets a heading.
+// makes true of every image, and that is how one column gets a heading.
 func (r *Renderer) table(images []sheet.Image, rowField, colField, colOrder, colDefault string) string {
 	column := func(image sheet.Image) string {
 		if value := image.Field(colField); value != "" {
@@ -230,8 +230,8 @@ func (r *Renderer) table(images []sheet.Image, rowField, colField, colOrder, col
 }
 
 // groupBy splits images by the value of one field, keeping the buckets in the
-// order their first image appears -- which, since Collect sorts by path, is
-// stable across runs.
+// order their first image appears, which is stable across runs because Collect
+// sorts by path.
 func groupBy(images []sheet.Image, name string) []Bucket {
 	var out []Bucket
 	index := map[string]int{}
@@ -313,8 +313,8 @@ func split(s, sep string) []string {
 }
 
 // Render executes the template. A body over the limit is an error rather than
-// something to silently trim: the action cannot know which images matter, and
-// the template author can split one template into two.
+// something to trim without saying so: the action cannot know which images
+// matter, and the template author can split one template into two.
 func (r *Renderer) Render(ctx Context) (string, error) {
 	var buf bytes.Buffer
 	if err := r.tmpl.Execute(&buf, ctx); err != nil {

@@ -8,20 +8,20 @@ thumbnails, rewritten in place on every push.
 Two ways in, and one question decides it: can a pull request on this repository
 come from a fork?
 
-### Recommended — two workflows
+### Recommended: two workflows
 
 **This one is fork safe.** A contributor's pull request gets its contact sheet
 like anyone else's, and no token that can write to your repository is ever in
-the same job as code from the fork. The capture runs where GitHub caps it — a
-read-only token, no secrets — and hands over image bytes; the comment is written
-by a workflow of yours, off your default branch, which never fetches the fork's
-head.
+the same job as code from the fork. The capture runs where GitHub caps it, on a
+read-only token with no secrets, and hands over image bytes. A workflow of
+yours writes the comment, off your default branch, and it never fetches the
+fork's head.
 
 It covers your own branches in the same pass, so this is the only setup a
 repository needs, fork or not.
 
 ```yaml
-# .github/workflows/e2e.yaml — runs the pull request's code
+# .github/workflows/e2e.yaml: runs the pull request's code
 name: E2E
 on: pull_request
 
@@ -42,7 +42,7 @@ jobs:
 ```
 
 ```yaml
-# .github/workflows/contact-sheet.yaml — runs yours
+# .github/workflows/contact-sheet.yaml: runs yours
 name: Contact Sheet
 on:
   workflow_run:
@@ -74,26 +74,25 @@ jobs:
 ```
 
 Like every event that is not tied to a code ref, `workflow_run` resolves the
-workflow from your default branch — so the pull request that adds these two
-files will run `E2E` and no comment will appear. It starts working when it is
-merged.
+workflow from your default branch. The pull request that adds these two files
+will run `E2E` and leave no comment; merge it and the comment appears.
 
-Four things are worth knowing before you copy it:
+Four lines carry weight, one of them by being absent:
 
 | | |
 | --- | --- |
-| `allow-fork` | without it a fork's pull request is skipped, because the action assumes the read-only token a `pull_request` run would have. This job's token is yours, and this is how it says so |
-| `sha` | that job stands on your default branch, so `GITHUB_SHA` is not the commit under review. This input is what the status line shows and what the pull request is resolved from |
+| `allow-fork` | without it the action skips a fork's pull request, because it assumes the read-only token a `pull_request` run would have. This job's token is yours, and this is how it says so |
+| `sha` | that job stands on your default branch, so `GITHUB_SHA` is not the commit under review. This input is what the status line shows and what the action resolves the pull request from |
 | no checkout | nothing here fetches the fork's head, and nothing should. If you need a custom template, `actions/checkout` in this workflow gives you *your* default branch, which is where it belongs |
 | `status` | `workflow_run.conclusion` is the triggering run's outcome as a whole, not one step's |
 
 [Pull requests from forks](#pull-requests-from-forks) has the reasoning, and
 what a fork does and does not get to decide.
 
-### The short way — one step
+### The short way: one step
 
-If nothing will ever arrive from a fork — an internal repository, a personal one
-— it is one step after whatever produces the images:
+If nothing will ever arrive from a fork (an internal repository, a personal
+one), it is one step after whatever produces the images:
 
 ```yaml
 - name: Capture
@@ -117,14 +116,14 @@ permissions:
 
 Faced with a fork's pull request this does nothing at all: the token it holds
 cannot write, so the action skips rather than collecting the images and failing
-on the push. The run stays green, `state` comes back `skipped`, and the reason
-is put on the run's page — not only in the log — because a pull request with no
-comment on it is otherwise a mystery. There is still no comment.
+on the push. The run stays green, `state` comes back `skipped`, and the action
+writes the reason to the run's page as well as the log, because a pull request
+with no comment on it is otherwise a mystery. It writes no comment either way.
 
 ## What the comment looks like
 
-One heading, one status line, and a folded section per directory. Nothing is
-configured above, so this is the whole default:
+One heading, one status line, and a folded section per directory. The workflows
+above configure none of it, so this is the whole default:
 
 ```markdown
 <!-- contact-sheet:default -->
@@ -142,27 +141,27 @@ configured above, so this is the whole default:
 
 </details>
 
-<sub>Kept on `refs/contact-sheet/pr-7/12345678.1`, outside the default fetch refspec — no clone or pull carries these.</sub>
+<sub>Kept on `refs/contact-sheet/pr-7/12345678.1`, outside the default fetch refspec, so no clone or pull carries these.</sub>
 ```
 
-Three things in there are worth knowing:
+The marker, the tick and the sha in the URLs each carry something:
 
 | | |
 | --- | --- |
 | `<!-- contact-sheet:default -->` | names the comment. The next run rewrites the comment carrying this marker instead of adding one, and `default` is the template that wrote it |
-| ✅ / ❌ | the `status` input, i.e. the job that produced the images — not whether publishing them worked |
+| ✅ / ❌ | the `status` input, i.e. the job that produced the images, and not whether publishing them worked |
 | `4c7e0d1…` in the URLs | the commit holding the images, which is not the head commit `9f1c2ab` |
 
 The other two states are a single line. Publishing failed:
 
 ```markdown
-13 images were collected, but pushing them failed (`…`). They are in the artifacts on [the run](…).
+This run collected 13 images, but pushing them failed (`…`). They are in the artifacts on [the run](…).
 ```
 
 Nothing to show:
 
 ```markdown
-No images under the configured path matched the layout — see [the logs](…).
+No images under the configured path matched the layout. See [the logs](…).
 ```
 
 `contact-sheet --print-template` prints the template behind all three.
@@ -183,35 +182,36 @@ nothing:
 Contact Sheet pushes the images to a **custom ref**,
 `refs/contact-sheet/pr-<number>/<run>`. `refs/heads/*` and `refs/tags/*` are
 where branches and tags live by convention; a ref anywhere else under `refs/` is
-an ordinary ref that those conventions simply do not reach. This one is not in
-the branch list, not in the Releases tab, and not in the default fetch refspec
+an ordinary ref that those conventions do not reach. This one stays out of the
+branch list, the Releases tab, and the default fetch refspec
 `+refs/heads/*:refs/remotes/origin/*`, so no clone or pull carries the images.
 `raw.githubusercontent.com` serves them anyway, because it addresses a blob by
 commit sha and does not care which ref leads there. GitHub does the same thing
 for pull requests, under `refs/pull/*`.
 
-The commit under that ref has no parent, so what gets pushed is the images and
+The commit under that ref has no parent, so the push carries the images and
 none of your repository's history.
 
 The push authenticates with an `http.extraheader` written into the config of the
-throwaway repository the commit is built in, not with a token in the remote URL
-and not on a command line. A URL travels: into `git remote -v`, into whatever
-git prints when a push is refused, and from there into a comment. A command line
-is worse, being readable from `/proc` for as long as the process runs.
+throwaway repository the commit is built in, rather than with a token in the
+remote URL or on a command line. Anyone can read a URL out of `git remote -v`,
+out of whatever git prints when a push is refused, and out of a comment quoting
+either. A command line is worse: every process on the runner can read it from
+`/proc` for as long as the process runs.
 
-`ref-namespace` moves that hierarchy, and it is checked before the run collects
-anything — a namespace the push would choke on is worth hearing about before the
-images are gathered and copied, not after. It has to start with `refs/`, name
-something inside it, and be a name `git check-ref-format` accepts. `refs/heads/*`
-and `refs/tags/*` are refused for the reason the table above gives: both are in
-the default fetch refspec, so pushing there hands every clone every image. So
-are the hierarchies with an owner — `refs/remotes/*`, `refs/notes/*`,
+`ref-namespace` moves that hierarchy. The action checks it before collecting
+anything, so a namespace the push would choke on surfaces before the images are
+gathered and copied. It has to start with `refs/`, name something inside it, and
+be a name `git check-ref-format` accepts. The action refuses `refs/heads/*` and
+`refs/tags/*` for the reason the table above gives: both are in the default
+fetch refspec, so pushing there hands every clone every image. It refuses the
+hierarchies with an owner too, `refs/remotes/*`, `refs/notes/*`,
 `refs/replace/*`, `refs/stash`, and the ones a forge maintains for itself, among
 them `refs/pull/*`, `refs/merge-requests/*`, `refs/pull-requests/*` and
 `refs/changes/*`. Anywhere else under `refs/` is yours.
 
 One ref per run, never rewritten, so a comment written months ago still
-resolves — the ref is what keeps the objects from being collected. To reclaim
+resolves: the ref is what keeps git from collecting the objects. To reclaim
 the space of a pull request that no longer matters:
 
 ```console
@@ -224,8 +224,8 @@ $ git push origin :refs/contact-sheet/pr-42/12345678.1
 | | |
 | --- | --- |
 | [gitrepository-layout](https://git-scm.com/docs/gitrepository-layout) | what lives under `refs/`, and which hierarchies are convention rather than rule |
-| [Git Internals — Git References](https://git-scm.com/book/en/v2/Git-Internals-Git-References) | what a ref actually is |
-| [git-fetch, "Configured Remote-tracking Branches"](https://git-scm.com/docs/git-fetch#_configured_remote_tracking_branches) | the default refspec — why `refs/heads/*` arrives and nothing else does |
+| [Git Internals — Git References](https://git-scm.com/book/en/v2/Git-Internals-Git-References) | what a ref is |
+| [git-fetch, "Configured Remote-tracking Branches"](https://git-scm.com/docs/git-fetch#_configured_remote_tracking_branches) | the default refspec: why `refs/heads/*` arrives and nothing else does |
 | [git-push, `<refspec>`](https://git-scm.com/docs/git-push#Documentation/git-push.txt-ltrefspecgt) | the `HEAD:refs/…` form, and deleting a ref with a leading colon |
 
 ### What this cannot do
@@ -237,69 +237,67 @@ the images are instead. Nothing else about the run changes.
 
 ## Pull requests from forks
 
-Why the [recommended setup](#recommended--two-workflows) is two files rather
-than one, and why it passes `allow-fork`.
+The [recommended setup](#recommended-two-workflows) is two files rather than
+one, and passes `allow-fork`, because of the token each job holds.
 
 A workflow a fork's pull request triggered holds a read-only `GITHUB_TOKEN`.
-GitHub caps it there because that workflow is running the fork's code — and for
+GitHub caps it there because that workflow is running the fork's code, and for
 the same reason it withholds every secret, so a dedicated PAT or a GitHub App in
-`secrets` is not a way round it either. Nothing in that job can push the ref or
+`secrets` is no way round it either. Nothing in that job can push the ref or
 write the comment.
 
-What lifts the cap is not a permission but a different job. `workflow_run` runs
-the default branch's copy of a workflow, which is yours, so it gets your
+A different job lifts the cap, and no permission does. `workflow_run` runs the
+default branch's copy of a workflow, which is yours, so it gets your
 repository's token and your secrets. Splitting the run in two puts the fork's
 code and the write token in separate jobs that never overlap, and the only thing
 that crosses between them is the artifact.
 
-That crossing is safe because an artifact is bytes. What would not be safe is
-checking out `workflow_run.head_sha` in the second workflow and building it —
-`npm ci` alone is enough, `postinstall` runs — because that puts fork code back
-next to the write token, which is the whole thing the split exists to prevent.
+That crossing is safe because an artifact is bytes. Checking out
+`workflow_run.head_sha` in the second workflow and building it is not: `npm ci`
+alone is enough, since `postinstall` runs. That puts fork code back next to the
+write token, which is the whole thing the split exists to prevent.
 
 ### `allow-fork`
 
 The action skips a fork's pull request by default, and collecting the images
 only to fail on the push is a worse answer than saying so up front. But that
-default is about the token, not the pull request — so a workflow holding one
-that _can_ write says so with `allow-fork: true` and gets the comment. The token
-has to come from somewhere other than the fork's run: a `workflow_run` job
+default is about the token rather than the pull request, so a workflow holding
+one that _can_ write says so with `allow-fork: true` and gets the comment. The
+token has to come from somewhere other than the fork's run: a `workflow_run` job
 picking up the artifact, an `issue_comment` command, or a PAT.
 
-Note what the second of those implies. A workflow that checks a fork's head out
-is building and running a stranger's code with a token that can write to your
-repository, so it needs a gate of its own — a command only a maintainer may
+The second of those carries a cost. A workflow that checks a fork's head out is
+building and running a stranger's code with a token that can write to your
+repository, so it needs a gate of its own: a command only a maintainer may
 issue, an environment with a required reviewer, or a label. **`allow-fork`
 decides whether the comment gets written; it decides nothing about whether
-writing it was safe.** The recommended setup earns it differently: it never runs
-the fork's code in the job holding the token, so there is nothing to gate.
+writing it was safe.** The recommended setup earns it another way, by keeping
+the fork's code out of the job holding the token, which leaves nothing to gate.
 
-Only half of what it says can be checked, and that half is. `allow-fork` claims
-two things — that the token can write, and that running this code was somebody's
-decision — and the first is a question GitHub will answer. So a run that sets it
-in a `pull_request` job, where the token never can write, skips and names the
-workflows that hold one, instead of collecting the images and stopping on a 403
-from `git push`. The second claim is the one that matters and the one nothing
-can verify; it stays yours.
+`allow-fork` claims two things: that the token can write, and that running this
+code was somebody's decision. GitHub will answer the first, so the action asks.
+A run that sets `allow-fork` in a `pull_request` job, where the token never can
+write, skips and names the workflows that hold one, instead of collecting the
+images and stopping on a 403 from `git push`. Nothing can verify the second
+claim, and it stays yours.
 
 Either way the run stays green, `state` comes back `skipped`, and the reason and
-the fix go to the run's page and its summary — not only the log, because a pull
+the fix go to the run's page and its summary as well as the log, because a pull
 request with no comment on it is otherwise a mystery.
 
 ### What a fork gets to decide
 
-Images and file names, and nothing else — but it does decide those completely.
-The workflow file a `pull_request` run executes is the pull request's own copy,
-so the artifact's contents, names and size are the contributor's to choose.
+Images and file names, and nothing else, though it decides those in full. The
+workflow file a `pull_request` run executes is the pull request's own copy, so
+the artifact's contents, names and size are the contributor's to choose.
 
-The images are pushed to a ref of yours, which costs storage. The names are
-written into the comment, and the contents are published: both are where the
-care goes. A file whose name would end the table cell, code span or tag a
-template put it in is not collected — see [Names that cannot go in a
-comment](#names-that-cannot-go-in-a-comment) — and neither is a symbolic link or
-a file whose bytes are not the picture its name promises, so nothing outside the
-artifact and nothing that is not an image reaches the ref. See [Files that are
-not the picture they claim to
+The action pushes the images to a ref of yours, which costs storage, and writes
+their names into the comment. Both are where the care goes. It collects no file
+whose name would end the table cell, code span or tag a template put it in (see
+[Names that cannot go in a comment](#names-that-cannot-go-in-a-comment)), no
+symbolic link, and no file whose bytes are not the picture its name promises.
+Nothing outside the artifact and nothing that is not an image reaches the ref.
+See [Files that are not the picture they claim to
 be](#files-that-are-not-the-picture-they-claim-to-be).
 
 ## How this compares
@@ -310,9 +308,9 @@ These tools differ on one thing: where the images live.
 | --- | --- |
 | an artifact alone | nothing, but the comment cannot show them; a reviewer downloads a zip |
 | a third-party image host, e.g. Imgur | the images are public however private the repository, under someone else's rate limits and retention |
-| a branch in your repository | `refs/heads/*` is in the default fetch refspec, so every clone and pull carries every image, indefinitely |
-| a hosted visual-regression service | baselines, diffing and approvals, but the images leave your repository and snapshots are billed |
-| `refs/contact-sheet/*` — this action | one ref per run, invisible to clones, deleted with a `git push origin :ref` when you want the space back |
+| a branch in your repository | `refs/heads/*` is in the default fetch refspec, so every clone and pull carries every image, and keeps carrying it |
+| a hosted visual-regression service | baselines, diffing and approvals, but the images leave your repository and the service bills you per snapshot |
+| `refs/contact-sheet/*`, this action | one ref per run, invisible to clones, deleted with a `git push origin :ref` when you want the space back |
 
 [comment-webpage-screenshot](https://github.com/saadmk11/comment-webpage-screenshot)
 and [comment-pr-with-images](https://github.com/opengisch/comment-pr-with-images)
@@ -333,9 +331,9 @@ there.
 
 ## Choosing which files to collect
 
-Every file that looks like an image — png, jpg, jpeg, gif, webp — and that turns
-out to be one is collected, and that is the whole of it unless you say
-otherwise. SVG is left out on purpose: GitHub's image proxy will not render one
+The action collects every file that looks like an image (png, jpg, jpeg, gif,
+webp) and turns out to be one, and that is the whole of it unless you say
+otherwise. SVG stays out on purpose: GitHub's image proxy will not render one
 from a raw URL, so collecting them would put broken cells in the comment.
 
 `layout` narrows that and annotates it. It is one expression, matched against
@@ -346,12 +344,12 @@ each file's slash-separated path under `path`, and it does two things:
 | filters | a file it does not match is skipped, so a trace or a `.gitkeep` in the same directory is harmless |
 | annotates | it lifts pieces of the path out by name and attaches them to the image, for your template to group and order by |
 
-The lifting is done by Go's named capture groups, `(?P<name>...)` — captures
-from here on, not the screenshots sitting in `e2e/captures`.
+Go's named capture groups, `(?P<name>...)`, do the lifting. "Captures" from
+here on means those, and not the screenshots sitting in `e2e/captures`.
 
-The names are yours. The action reads none of them — there is no `row`, no
-`col`, no reserved word. A suite with one project per viewport and a light/dark
-sweep might write:
+The names are yours. The action reads none of them: no `row`, no `col`, no
+reserved word. A suite with one project per viewport and a light/dark sweep
+might write:
 
 ```yaml
 layout: '^(?:[^/]+/)?(?P<screen>.+?)(?:-(?P<theme>light|dark))?\.png$'
@@ -367,7 +365,7 @@ uses `(?P<name>...)`, not `(?<name>...)`.
 
 ### Names that cannot go in a comment
 
-One more file is skipped whatever the layout says: one whose path holds a
+The action skips one more file whatever the layout says: one whose path holds a
 control character, invalid UTF-8, or any of
 
 ```
@@ -376,33 +374,33 @@ control character, invalid UTF-8, or any of
 
 Each of those ends the table cell, code span, tag or link a template wrote the
 name into, and starts something else. The log names the files this leaves out,
-so they do not go missing quietly.
+so none of them goes missing in silence.
 
-They are refused rather than escaped because the right escaping depends on where
-the template puts the name, and that is the template author's decision, not the
-action's. It matters most on [a pull request from a
-fork](#pull-requests-from-forks), where the names were chosen by whoever opened
-it — a space, a `#`, or a name in any script are all still fine, and are escaped
-properly where they land in a URL.
+The action refuses them rather than escaping them, because the right escaping
+depends on where the template puts the name, and that is the template author's
+decision. It matters most on [a pull request from a
+fork](#pull-requests-from-forks), where whoever opened it chose the names. A
+space, a `#`, or a name in any script are all still fine, and the action escapes
+them where they land in a URL.
 
 ### Files that are not the picture they claim to be
 
 A name is not evidence about contents, and the same pull request that chose the
-names chose those too. Two more files are skipped whatever the layout says, for
-what they are rather than what they are called:
+names chose those too. The action skips two more files whatever the layout says,
+for what they are rather than what they are called:
 
 | | |
 | --- | --- |
-| a symbolic link | copying one follows it, so whatever it points at — anywhere on the runner, inside the checkout or outside it — is what would be committed and pushed to a public ref |
-| contents that are not the picture the extension promises | a `.png` holding two megabytes of something else is published all the same and renders as a broken cell |
+| a symbolic link | copying one follows it, so the action would commit whatever it points at, anywhere on the runner, inside the checkout or outside it, and push that to a public ref |
+| contents that are not the picture the extension promises | the action publishes a `.png` holding two megabytes of something else all the same, and the comment renders it as a broken cell |
 
-So the leading bytes of every collected file are read and held against its
-extension: `about-light.png` has to be a PNG. Where a `layout` picks out a file
-whose extension this action knows nothing about, the bytes still have to be one
-of png, jpeg, gif or webp — a comment showing them has no extension to go on
-either.
+The action therefore reads the leading bytes of every collected file and holds
+them against its extension: `about-light.png` has to be a PNG. A `layout` may
+pick out a file whose extension this action knows nothing about, and the bytes
+still have to be one of png, jpeg, gif or webp, since a comment showing them has
+no extension to go on either.
 
-Both are named in the log, for the same reason a rejected name is: unlike a file
+The log names both, for the same reason it names a rejected path: unlike a file
 the layout did not match, one of these was meant to be there.
 
 ## Writing the comment
@@ -427,20 +425,20 @@ leaves:
     template-files: .github/summary.tmpl,.github/desktop.tmpl,.github/mobile.tmpl
 ```
 
-Each comment is marked `<!-- <comment-id>:<file name without extension> -->`, so
-renaming a template starts a new comment and reordering the list does not
-shuffle which comment gets rewritten. Two files with the same base name are an
-error rather than a comment that overwrites another. Drop a template from the
-list and its comment is deleted on the next run.
+The action marks each comment `<!-- <comment-id>:<file name without extension>
+-->`, so renaming a template starts a new comment and reordering the list does
+not shuffle which comment gets rewritten. Two files with the same base name are
+an error rather than a comment that overwrites another. Drop a template from the
+list and the next run deletes its comment.
 
 A body over GitHub's 65536-character limit is an error naming the template that
-overflowed. Nothing is trimmed to fit — the action cannot know which images you
-wanted — and the fix is another template.
+overflowed. The action trims nothing to fit, since it cannot know which images
+you wanted, and the fix is another template.
 
 ### Templates you do not have to write
 
-An entry is a path in your checkout or an `https://` URL, so the four in this
-repository's [`templates/`](./templates) can be used without copying them:
+An entry is a path in your checkout or an `https://` URL, so you can use the
+four in this repository's [`templates/`](./templates) without copying them:
 
 ```yaml
 - uses: miyamo2/contact-sheet@main
@@ -457,19 +455,19 @@ repository's [`templates/`](./templates) can be used without copying them:
 | [`themes.tmpl`](./templates/themes.tmpl) | a row per screen and a column per theme, from a `layout` capturing `screen` and `theme` |
 
 Pin the URL to a tag rather than a branch, the same as the `uses:` line above:
-the templates are versioned with the action, and a template ahead of your binary
-can call a helper it does not have.
+the templates ship versioned with the action, and a template ahead of your
+binary can call a helper it does not have.
 
-Two things a URL cannot do. It is fetched anonymously — nothing of yours is sent
-with the request, `GITHUB_TOKEN` included — so a private URL will not resolve,
-and it has to be `https`, because whatever comes back is posted as a comment on
-your pull request.
+A URL has two limits. The action fetches it anonymously, sending nothing of
+yours with the request, `GITHUB_TOKEN` included, so a private URL will not
+resolve. And it has to be `https`, because whatever comes back lands as a
+comment on your pull request.
 
 ### The context
 
 ```go
 State       "published" | "publish-failed" | "empty"
-Status      "success" | "failure" — the job that produced the images
+Status      "success" | "failure", the job that produced the images
 Title       the title input
 Version     the contact-sheet build that wrote the comment
 Repository  "owner/repo"
@@ -482,9 +480,9 @@ Total
 Failure
 ```
 
-`Failure` is set only when `State` is `publish-failed`, and it is the one field
-whose words are not the action's — it is what git said. It arrives collapsed to
-one line, with backticks removed and a length cap, so that a template may put it
+`Failure` carries a value only when `State` is `publish-failed`, and it is the
+one field whose words are not the action's: git wrote them. It arrives collapsed
+to one line, with backticks removed and a length cap, so a template can put it
 in a code span without a multi-line `remote:` answer breaking out of one.
 
 `.Succeeded` and `.Published` are shorthands for the two comparisons templates
@@ -506,14 +504,15 @@ reads either a built-in field or a capture by the same name.
 
 ### Every template has to handle three states
 
-`State` is `published` only when images were collected *and* pushed. A template
-that renders images unconditionally will show broken URLs when the push fails:
+`State` is `published` only when the action collected images *and* pushed them.
+A template that renders images without checking will show broken URLs when the
+push fails:
 
 ```gotemplate
 {{ if eq .State "published" }}
 {{ range groupBy .Images "dir" }}{{ details .Key (table .Images "name" "" "" "image") }}{{ end }}
 {{- else if eq .State "publish-failed" }}
-{{ .Total }} images were collected, but publishing them failed (`{{ .Failure }}`).
+This run collected {{ .Total }} images, but publishing them failed (`{{ .Failure }}`).
 {{- else }}
 No images were produced by this run.
 {{- end }}
@@ -527,7 +526,7 @@ $ contact-sheet --dry-run --path e2e/captures --template-files .github/contact-s
 ```
 
 `--dry-run` resolves no pull request, pushes nothing and prints the body it
-would have posted, so a template can be iterated on locally in seconds.
+would have posted, so you can iterate on a template in seconds.
 
 ## Which binary the action installs
 
@@ -541,18 +540,17 @@ version for it to read:
 | any other commit sha | built from that commit |
 | a branch, `main` | built from the branch's current tip with `go install` |
 
-A sha pin is usually a tag a pinning tool rewrote, and the release built from
-that commit is the binary the tag would have installed. Anything else names no
-release, so the alternative to building would be running some other commit's
-binary against this one's `action.yml` and templates. Building needs Go on the
-runner: add
+A pinning tool rewrites a tag into a sha, and the release built from that commit
+is the binary the tag would have installed. Anything else names no release, so
+the alternative to building would be running some other commit's binary against
+this one's `action.yml` and templates. Building needs Go on the runner: add
 [`actions/setup-go`](https://github.com/actions/setup-go) before the step, or
-pin to a tag and get the prebuilt binary instead. A binary already on `PATH` is
-left alone, which is how this repository's own workflows test the commit under
-review.
+pin to a tag and get the prebuilt binary instead. The action leaves a binary
+already on `PATH` alone, which is how this repository's own workflows test the
+commit under review.
 
-Either way the binary is what knows its own version — it reads it out of the
-build information Go stamps in ([`runtime/debug`](https://pkg.go.dev/runtime/debug)),
+Either way the binary knows its own version: it reads it out of the build
+information Go stamps in ([`runtime/debug`](https://pkg.go.dev/runtime/debug)),
 which is the release tag for a tagged build and a pseudo-version naming the
 commit for the rest. `contact-sheet --version` prints it, the first line of the
 step's log repeats it, and `.Version` hands it to a template.
@@ -589,11 +587,11 @@ step's log repeats it, and `.Version` hands it to a template.
 | `empty` | nothing under `path` matched |
 | `skipped` | the run ended without a comment: no pull request on this commit, one that is not open, or one from a fork this token cannot write to |
 
-A `skipped` run is a green one. The reason is in the log, and the fork case —
-the one you probably did not mean — also writes a notice and a run summary
-naming the fix, because a job that passed and did nothing otherwise looks
-exactly like a job that worked. The first three are the states a template sees;
-`skipped` ends the run before there is anything to render.
+A `skipped` run is a green one. The reason is in the log, and the fork case, the
+one you did not mean, also writes a notice and a run summary naming the fix,
+because a job that passed and did nothing looks like a job that worked. The
+first three are the states a template sees; `skipped` ends the run before there
+is anything to render.
 
 ## License
 
